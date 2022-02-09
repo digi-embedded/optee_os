@@ -31,6 +31,20 @@ struct gpio_regul {
 	uint16_t gpio_voltage_table[2];
 };
 
+static TEE_Result gpio_set_state(const struct regul_desc *desc __unused,
+				 bool enable __unused)
+{
+	return TEE_SUCCESS;
+}
+
+static TEE_Result gpio_get_state(const struct regul_desc *desc __unused,
+				 bool *enabled)
+{
+	*enabled = true;
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result gpio_get_voltage(const struct regul_desc *desc, uint16_t *mv)
 {
 	struct gpio_regul *gr = (struct gpio_regul *)desc->driver_data;
@@ -90,6 +104,8 @@ static TEE_Result gpio_list_voltages(const struct regul_desc *desc,
 }
 
 static struct regul_ops gpio_regul_ops = {
+	.set_state = gpio_set_state,
+	.get_state = gpio_get_state,
 	.set_voltage = gpio_set_voltage,
 	.get_voltage = gpio_get_voltage,
 	.list_voltages = gpio_list_voltages,
