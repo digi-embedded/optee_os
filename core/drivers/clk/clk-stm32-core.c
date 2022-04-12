@@ -82,11 +82,23 @@ void clk_stm32_endisable_gate(uint16_t gate_id, bool enable)
 
 void clk_stm32_disable_gate(uint16_t gate_id)
 {
+	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	uint8_t *gate_cpt = priv->gate_cpt;
+
+	if (--gate_cpt[gate_id] > 0)
+		return;
+
 	clk_stm32_endisable_gate(gate_id, false);
 }
 
 int clk_stm32_enable_gate(uint16_t gate_id)
 {
+	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	uint8_t *gate_cpt = priv->gate_cpt;
+
+	if (gate_cpt[gate_id]++ > 0)
+		return 0;
+
 	clk_stm32_endisable_gate(gate_id, true);
 
 	return 0;
@@ -550,6 +562,10 @@ int clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base)
 	stm32_clock_data = priv;
 
 	priv->base = base;
+
+	priv->gate_cpt = calloc(priv->nb_gates, sizeof(uint8_t));
+	if (!priv->gate_cpt)
+		return TEE_ERROR_OUT_OF_MEMORY;
 
 	priv->clk_ignore_unused = clk_stm32_get_ignore_unused_property();
 
