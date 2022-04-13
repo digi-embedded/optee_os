@@ -1,7 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ or BSD-3-Clause */
 /*
- * Copyright (C) 2018-2020, STMicroelectronics - All Rights Reserved
- *
- * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
+ * Author: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
  */
 
 #ifndef _DT_BINDINGS_CLOCK_STM32MP13_CLKSRC_H_
@@ -10,7 +10,6 @@
 #define CMD_DIV		0
 #define CMD_MUX		1
 #define CMD_CLK		2
-#define CMD_RESERVED1	3
 
 #define CMD_SHIFT	26
 #define CMD_MASK	0xFC000000
@@ -66,25 +65,17 @@
 #define DIV_NB		26
 
 #define DIV(div_id, div)	((CMD_DIV << CMD_SHIFT) |\
-				 ((div_id) << DIV_ID_SHIFT |\
-				 (div)))
+				 ((div_id) << DIV_ID_SHIFT) |\
+				 (div))
 
 #define CLKSRC(mux_id, sel)	((CMD_MUX << CMD_SHIFT) |\
-				 ((mux_id) << MUX_ID_SHIFT |\
-				 (sel)))
-
-/* MCO output is enable */
-#define MCO_SRC(mco_id, sel)	((CMD_CLK << CMD_SHIFT) |\
-				 (((mco_id) << CLK_ID_SHIFT) |\
-				 (sel)) | CLK_ON_MASK)
-
-#define MCO_DISABLED(mco_id)	((CMD_CLK << CMD_SHIFT) |\
-				 ((mco_id) << CLK_ID_SHIFT))
+				 ((mux_id) << MUX_ID_SHIFT) |\
+				 (sel))
 
 /* CLK output is enable */
 #define CLK_SRC(clk_id, sel)	((CMD_CLK << CMD_SHIFT) |\
-				 (((clk_id) << CLK_ID_SHIFT) |\
-				 (sel)) | CLK_ON_MASK)
+				 ((clk_id) << CLK_ID_SHIFT) |\
+				 (sel) | CLK_ON_MASK)
 
 #define CLK_DISABLED(clk_id)	((CMD_CLK << CMD_SHIFT) |\
 				 ((clk_id) << CLK_ID_SHIFT))
@@ -379,9 +370,6 @@
 #define CLK_SAES_CKPER		CLKSRC(MUX_SAES, 1)
 #define CLK_SAES_PLL4R		CLKSRC(MUX_SAES, 2)
 #define CLK_SAES_LSI		CLKSRC(MUX_SAES, 3)
-
-/* PLL output is enable when x=1, with x=p,q or r */
-#define PQR(p, q, r)	(((p) & 1) | (((q) & 1) << 1) | (((r) & 1) << 2))
 
 /* define for st,pll /csg */
 #define SSCG_MODE_CENTER_SPREAD	0
