@@ -587,6 +587,9 @@ void stm32mp_dump_core_registers(bool force_display)
 	reg = (uint32_t *)&sm_nsec_ctx->ub_regs.usr_sp;
 	for (i = 0U; i < ARRAY_SIZE(dump_table); i++)
 		MSG("%10s : 0x%08x\n", dump_table[i], reg[i]);
+
+	MSG("%10s : %#08x", "mon_lr", sm_nsec_ctx->mon_lr);
+	MSG("%10s : %#08x", "mon_spsr", sm_nsec_ctx->mon_spsr);
 }
 DECLARE_KEEP_PAGER(stm32mp_dump_core_registers);
 #endif
