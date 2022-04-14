@@ -257,7 +257,7 @@ static void stm32mp_tzc_cfg_boot_region(struct tzc_device *tzc_dev)
 			.sec_attr = TZC_REGION_S_RDWR,
 			.ns_device_access = 0,
 		},
-#if CFG_CORE_RESERVED_SHM
+#ifdef CFG_CORE_RESERVED_SHM
 		{
 			.base = CFG_SHMEM_START,
 			.top = CFG_SHMEM_START + CFG_SHMEM_SIZE - 1,
@@ -270,8 +270,10 @@ static void stm32mp_tzc_cfg_boot_region(struct tzc_device *tzc_dev)
 
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_TZDRAM_START));
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_TZDRAM_SIZE));
+#ifdef CFG_CORE_RESERVED_SHM
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_SHMEM_START));
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_SHMEM_SIZE));
+#endif
 
 	stm32mp_tzc_region0(true);
 
