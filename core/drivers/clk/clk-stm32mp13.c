@@ -1434,11 +1434,12 @@ static int stm32mp1_init_clock_tree(struct clk_stm32_priv *priv,
 }
 
 #ifdef CFG_STM32_CLK_DEBUG
-static void clk_stm32_debug_display_pll_cfg(int pll_id, struct stm32_pll_dt_cfg *pll)
+static void clk_stm32_debug_display_pll_cfg(int pll_id,
+					    struct stm32_pll_dt_cfg *pll)
 {
 	struct stm32_pll_vco *vco = &pll->vco;
 	struct stm32_pll_output *out = &pll->output;
-	size_t j = 0;
+	unsigned int j = 0;
 
 	printf("PLL%d : %s", pll_id + 1, vco->status ? "" : "disabled");
 
@@ -1449,9 +1450,9 @@ static void clk_stm32_debug_display_pll_cfg(int pll_id, struct stm32_pll_dt_cfg 
 
 	printf(" vco = < ");
 
-	for (j = 0; j < PLL_DIV_MN_NB; j++) {
+	for (j = 0; j < PLL_DIV_MN_NB; j++)
 		printf("%d ", vco->div_mn[j]);
-	}
+
 	printf("> ");
 
 	printf("frac = 0x%x ", vco->frac);
@@ -1461,34 +1462,33 @@ static void clk_stm32_debug_display_pll_cfg(int pll_id, struct stm32_pll_dt_cfg 
 	if (vco->csg_enabled) {
 		printf("csg = < ");
 
-		for (j = 0; j < PLL_CSG_NB; j++) {
+		for (j = 0; j < PLL_CSG_NB; j++)
 			printf("%d ", vco->csg[j]);
-		}
 
 		printf("> ");
 	}
 
 	printf("output = < ");
 
-	for (j = 0; j < PLL_DIV_PQR_NB; j++) {
+	for (j = 0; j < PLL_DIV_PQR_NB; j++)
 		printf("%d ", out->output[j]);
-	}
+
 	printf(">\n");
 }
 
 static void clk_stm32_debug_display_opp_cfg(const char *opp_name,
 					    struct stm32_clk_opp_cfg *opp_cfg)
 {
-	size_t i = 0;
+	unsigned int i = 0;
 
 	printf("\nOPP %s :\n", opp_name);
 
 	for (i = 0; i < MAX_OPP; i++) {
-		if(opp_cfg->frq == 0UL)
+		if (opp_cfg->frq == 0UL)
 			break;
 
-		printf("frequence = %d src = 0x%x div = 0x%x ", opp_cfg->frq,
-			opp_cfg->src, opp_cfg->div);
+		printf("frequency = %d src = 0x%x div = 0x%x ", opp_cfg->frq,
+		       opp_cfg->src, opp_cfg->div);
 
 		clk_stm32_debug_display_pll_cfg(PLL1_ID, &opp_cfg->pll_cfg);
 
@@ -1527,7 +1527,9 @@ static void clk_stm32_debug_display_osc_dt_cfg(struct clk_stm32_priv *priv)
 
 	for (i = 0; i < nb; i++) {
 		struct stm32_osci_dt_cfg *osc = &pdata->osci[i];
-		struct clk_oscillator_data *osc_data = clk_oscillator_get_data(i);
+		struct clk_oscillator_data *osc_data = NULL;
+
+		osc_data = clk_oscillator_get_data(i);
 
 		printf("%s %ld bypass = %d digbyp = %d css = %d drive = %d\n",
 		       osc_data->name,
@@ -1960,7 +1962,7 @@ static TEE_Result clk_stm32_composite_get_duty_cycle(struct clk *clk,
 	return 0;
 }
 
-static unsigned long clk_stm32_composite_round_rate(__maybe_unused struct clk *clk,
+static unsigned long clk_stm32_composite_round_rate(struct clk *clk __unused,
 						    unsigned long rate,
 						    unsigned long prate)
 {
@@ -2078,7 +2080,7 @@ static TEE_Result clk_stm32_mpu_determine_rate(struct clk *clk,
 	int index = 0;
 
 	opp = clk_stm32_get_opp_config(pdata->opp->mpu_opp, rate);
-	if (opp == NULL)
+	if (!opp)
 		return 0;
 
 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
@@ -2108,7 +2110,7 @@ static TEE_Result clk_stm32_axi_determine_rate(struct clk *clk,
 	int index = 0;
 
 	opp = clk_stm32_get_opp_config(pdata->opp->axi_opp, rate);
-	if (opp == NULL)
+	if (!opp)
 		return 0;
 
 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
@@ -2128,7 +2130,8 @@ static const struct clk_ops clk_stm32_axi_ops = {
 	.get_rate	= clk_stm32_composite_get_rate,
 };
 
-static TEE_Result clk_stm32_mlahb_determine_rate(struct clk *clk, struct clk_rate_request *req)
+static TEE_Result clk_stm32_mlahb_determine_rate(struct clk *clk,
+						 struct clk_rate_request *req)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	struct stm32_clk_platdata *pdata = priv->pdata;
@@ -2138,7 +2141,7 @@ static TEE_Result clk_stm32_mlahb_determine_rate(struct clk *clk, struct clk_rat
 	int index = 0;
 
 	opp = clk_stm32_get_opp_config(pdata->opp->mlahbs_opp, rate);
-	if (opp == NULL)
+	if (!opp)
 		return 0;
 
 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
@@ -2274,7 +2277,7 @@ static struct clk ck_pll1p = {
 		.mux_id		= NO_MUX,
 	},
 	.name		= "ck_pll1p",
-	.flags		= CLK_SET_RATE_PARENT,\
+	.flags		= CLK_SET_RATE_PARENT,
 	.num_parents	= 1,
 	.parents	= { &ck_pll1_vco },
 };
@@ -2880,16 +2883,20 @@ static void clk_stm32_pm_backup_iwdg(void)
 {
 	uintptr_t rcc_base = stm32_rcc_base();
 
-	apb_iwdg1 = (io_read32(rcc_base + RCC_MP_APB5ENSETR) & RCC_MP_APB5ENSETR_IWDG1APBEN);
-	apb_iwdg2 = (io_read32(rcc_base + RCC_MP_APB4ENSETR) & RCC_MP_APB4ENSETR_IWDG2APBEN);
+	apb_iwdg1 = (io_read32(rcc_base + RCC_MP_APB5ENSETR) &
+		    RCC_MP_APB5ENSETR_IWDG1APBEN);
+	apb_iwdg2 = (io_read32(rcc_base + RCC_MP_APB4ENSETR) &
+		    RCC_MP_APB4ENSETR_IWDG2APBEN);
 }
 
 static void clk_stm32_pm_restore_iwdg(void)
 {
 	uintptr_t rcc_base = stm32_rcc_base();
 
-	io_clrsetbits32(rcc_base + RCC_MP_APB5ENSETR, RCC_MP_APB5ENSETR_IWDG1APBEN, apb_iwdg1);
-	io_clrsetbits32(rcc_base + RCC_MP_APB4ENSETR, RCC_MP_APB4ENSETR_IWDG2APBEN, apb_iwdg2);
+	io_clrsetbits32(rcc_base + RCC_MP_APB5ENSETR,
+			RCC_MP_APB5ENSETR_IWDG1APBEN, apb_iwdg1);
+	io_clrsetbits32(rcc_base + RCC_MP_APB4ENSETR,
+			RCC_MP_APB4ENSETR_IWDG2APBEN, apb_iwdg2);
 }
 
 static void clk_stm32_pm_backup_all_mux(void)
@@ -3090,24 +3097,31 @@ static void clk_stm32_pm_pll_backup_vco(struct clk_stm32_priv *priv,
 	/* Read N / M / IFREGE fields */
 	value = io_read32(pll_base + RCC_OFFSET_PLLXCFGR1);
 
-	vco->div_mn[PLL_CFG_M] = (value & RCC_PLLNCFGR1_DIVM_MASK) >> RCC_PLLNCFGR1_DIVM_SHIFT;
-	vco->div_mn[PLL_CFG_N] = (value & RCC_PLLNCFGR1_DIVN_MASK) >> RCC_PLLNCFGR1_DIVN_SHIFT;
+	vco->div_mn[PLL_CFG_M] = (value & RCC_PLLNCFGR1_DIVM_MASK) >>
+				 RCC_PLLNCFGR1_DIVM_SHIFT;
+	vco->div_mn[PLL_CFG_N] = (value & RCC_PLLNCFGR1_DIVN_MASK) >>
+				 RCC_PLLNCFGR1_DIVN_SHIFT;
 
 	/* Read Frac */
-	vco->frac = io_read32(pll_base + RCC_OFFSET_PLLXFRACR) & RCC_PLLNFRACR_FRACV_MASK;
+	vco->frac = io_read32(pll_base + RCC_OFFSET_PLLXFRACR) &
+		    RCC_PLLNFRACR_FRACV_MASK;
 	vco->frac = vco->frac >> RCC_PLLNFRACR_FRACV_SHIFT;
 
 	/* Read CSG */
 	value = io_read32(pll_base + RCC_OFFSET_PLLXCSGR);
-	mod_per = (value & RCC_PLLNCSGR_MOD_PER_MASK) >> RCC_PLLNCSGR_MOD_PER_SHIFT;
-	inc_step = (value & RCC_PLLNCSGR_INC_STEP_MASK) >> RCC_PLLNCSGR_INC_STEP_SHIFT;
-	sscg_mode = (value & RCC_PLLNCSGR_SSCG_MODE_MASK) >> RCC_PLLNCSGR_SSCG_MODE_SHIFT;
+	mod_per = (value & RCC_PLLNCSGR_MOD_PER_MASK) >>
+		   RCC_PLLNCSGR_MOD_PER_SHIFT;
+	inc_step = (value & RCC_PLLNCSGR_INC_STEP_MASK) >>
+		   RCC_PLLNCSGR_INC_STEP_SHIFT;
+	sscg_mode = (value & RCC_PLLNCSGR_SSCG_MODE_MASK) >>
+		    RCC_PLLNCSGR_SSCG_MODE_SHIFT;
 
 	vco->csg[PLL_CSG_MOD_PER] = mod_per;
 	vco->csg[PLL_CSG_INC_STEP] = inc_step;
 	vco->csg[PLL_CSG_SSCG_MODE] = sscg_mode;
 
-	vco->csg_enabled = io_read32(pll_base + RCC_OFFSET_PLLXCSGR) && RCC_PLLNCR_SSCG_CTRL;
+	vco->csg_enabled = io_read32(pll_base + RCC_OFFSET_PLLXCSGR) &&
+				     RCC_PLLNCR_SSCG_CTRL;
 }
 
 static void clk_stm32_pm_pll_backup_output(struct clk_stm32_priv *priv,
@@ -3119,9 +3133,12 @@ static void clk_stm32_pm_pll_backup_output(struct clk_stm32_priv *priv,
 
 	value = io_read32(pll_base + RCC_OFFSET_PLLXCFGR2);
 
-	out->output[PLL_CFG_P] = (value & RCC_PLLNCFGR2_DIVP_MASK) >> RCC_PLLNCFGR2_DIVP_SHIFT;
-	out->output[PLL_CFG_Q] = (value & RCC_PLLNCFGR2_DIVQ_MASK) >> RCC_PLLNCFGR2_DIVQ_SHIFT;
-	out->output[PLL_CFG_R] = (value & RCC_PLLNCFGR2_DIVR_MASK) >> RCC_PLLNCFGR2_DIVR_SHIFT;
+	out->output[PLL_CFG_P] = (value & RCC_PLLNCFGR2_DIVP_MASK) >>
+				 RCC_PLLNCFGR2_DIVP_SHIFT;
+	out->output[PLL_CFG_Q] = (value & RCC_PLLNCFGR2_DIVQ_MASK) >>
+				 RCC_PLLNCFGR2_DIVQ_SHIFT;
+	out->output[PLL_CFG_R] = (value & RCC_PLLNCFGR2_DIVR_MASK) >>
+				 RCC_PLLNCFGR2_DIVR_SHIFT;
 }
 
 static void stm32_clk_pm_pll_backup(int pll_idx)
@@ -3142,7 +3159,6 @@ static void clk_stm32_pm_backup_pll34(void)
 
 	for (i = 0; i < ARRAY_SIZE(plls); i++)
 		clk_stm32_pm_pll_backup_status(plls[i]);
-
 }
 
 static void clk_stm32_pm_restore_pll34(void)
@@ -3152,17 +3168,20 @@ static void clk_stm32_pm_restore_pll34(void)
 
 	for (i = 0; i < ARRAY_SIZE(plls); i++) {
 		int pll_id = plls[i];
-		struct stm32_pll_dt_cfg *pll_conf = &stm32_pll_backup_state[pll_id];
 		const struct stm32_clk_pll *pll = clk_stm32_pll_data(pll_id);
 		bool pll_status = stm32_gate_is_enabled(pll->gate_id);
+		struct stm32_pll_dt_cfg *conf = NULL;
 
-		if ((pll_conf->vco.status & RCC_PLLNCR_PLLON) && !pll_status) {
+		conf = &stm32_pll_backup_state[pll_id];
+
+		if ((conf->vco.status & RCC_PLLNCR_PLLON) && !pll_status) {
 			if (stm32_gate_rdy_enable(pll->gate_id)) {
 				EMSG("timeout to enable pll %d", pll_id);
 				panic();
 			}
 
-			clk_stm32_pll_restore_output_diven(pll, pll_conf->vco.status);
+			clk_stm32_pll_restore_output_diven(pll,
+							   conf->vco.status);
 		}
 	}
 }
@@ -3181,11 +3200,8 @@ static void clk_stm32_pm_restore_all_pll(void)
 	int pll_id = 0;
 
 	for (pll_id = PLL1_ID; pll_id < PLL_NB; pll_id++) {
-		struct stm32_pll_dt_cfg *pll_conf = &stm32_pll_backup_state[pll_id];
-		int err = 0;
-
-		err = clk_stm32_pll_init(priv, pll_id, pll_conf);
-		if (err) {
+		if (clk_stm32_pll_init(priv, pll_id,
+				       &stm32_pll_backup_state[pll_id])) {
 			EMSG("Failed to restore PLL");
 			panic();
 		}
@@ -3194,26 +3210,29 @@ static void clk_stm32_pm_restore_all_pll(void)
 
 static void clk_stm32_pm_restore_pll_output_status(void)
 {
-	const uint32_t mask = RCC_PLLNCR_DIVPEN | RCC_PLLNCR_DIVQEN | RCC_PLLNCR_DIVREN;
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	uint32_t mask = 0;
 	int pll_id = 0;
 
+	mask = RCC_PLLNCR_DIVPEN | RCC_PLLNCR_DIVQEN | RCC_PLLNCR_DIVREN;
+
 	for (pll_id = PLL1_ID; pll_id < PLL_NB; pll_id++) {
-		struct stm32_pll_dt_cfg *pll_conf = &stm32_pll_backup_state[pll_id];
+		struct stm32_pll_dt_cfg *conf = NULL;
 		const struct stm32_clk_pll *pll = clk_stm32_pll_data(pll_id);
 		uintptr_t pllxcr = priv->base + pll->reg_pllxcr;
 
+		conf = &stm32_pll_backup_state[pll_id];
+
 		/* If pll was on */
-		if (pll_conf->vco.status & RCC_PLLNCR_PLLON) {
+		if (conf->vco.status & RCC_PLLNCR_PLLON) {
 			/* Set output */
-			io_clrsetbits32(pllxcr, mask, pll_conf->vco.status & mask);
-		}
-		else {
+			io_clrsetbits32(pllxcr, mask,
+					conf->vco.status & mask);
+		} else {
 			/* Stop all output */
 			io_clrbits32(pllxcr, RCC_PLLNCR_DIVPEN |
 				     RCC_PLLNCR_DIVQEN | RCC_PLLNCR_DIVREN);
 			stm32_gate_rdy_disable(pll->gate_id);
-
 		}
 	}
 }
