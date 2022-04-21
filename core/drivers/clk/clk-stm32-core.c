@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /*
- * Copyright (C) 2018-2021, STMicroelectronics - All Rights Reserved
+ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
  */
 
 #include <config.h>
@@ -18,9 +18,12 @@
 
 #define RCC_MP_ENCLRR_OFFSET	0x4
 
+#define TIMEOUT_US_200MS	U(200000)
+#define TIMEOUT_US_1S		U(1000000)
+
 static struct clk_stm32_priv *stm32_clock_data;
 
-inline struct clk_stm32_priv *clk_stm32_get_priv(void)
+struct clk_stm32_priv *clk_stm32_get_priv(void)
 {
 	return stm32_clock_data;
 }
@@ -32,11 +35,8 @@ uintptr_t clk_stm32_get_rcc_base(void)
 	return priv->base;
 }
 
-#define TIMEOUT_US_200MS	U(200000)
-#define TIMEOUT_US_1S		U(1000000)
-
 /* STM32 MUX API */
-int clk_stm32_get_parent_mux(uint32_t mux_id)
+size_t stm32_mux_get_parent(uint32_t mux_id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct mux_cfg *mux = &priv->muxes[mux_id];
@@ -45,7 +45,7 @@ int clk_stm32_get_parent_mux(uint32_t mux_id)
 	return (io_read32(priv->base + mux->offset) & mask) >> mux->shift;
 }
 
-int clk_stm32_set_parent_mux(uint16_t mux_id, uint8_t sel)
+TEE_Result stm32_mux_set_parent(uint16_t mux_id, uint8_t sel)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct mux_cfg *mux = &priv->muxes[mux_id];
@@ -54,33 +54,34 @@ int clk_stm32_set_parent_mux(uint16_t mux_id, uint8_t sel)
 
 	io_clrsetbits32(address, mask, (sel << mux->shift) & mask);
 
-	if (mux->ready == MUX_NO_RDY)
-		return 0;
+	if (mux->ready != MUX_NO_RDY)
+		return stm32_gate_wait_ready((uint16_t)mux->ready, true);
 
-	return clk_stm32_wait_ready_gate((uint16_t) mux->ready, true);
+	return TEE_SUCCESS;
 }
 
 /* STM32 GATE API */
-void clk_stm32_endisable_gate(uint16_t gate_id, bool enable)
+static void stm32_gate_endisable(uint16_t gate_id, bool enable)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct gate_cfg *gate = &priv->gates[gate_id];
 	uintptr_t addr = priv->base + gate->offset;
 
 	if (enable) {
-		if (gate->set_clr != 0U)
+		if (gate->set_clr)
 			io_write32(addr, BIT(gate->bit_idx));
 		else
 			io_setbits32_stm32shregs(addr, BIT(gate->bit_idx));
 	} else {
-		if (gate->set_clr != 0U)
-			io_write32(addr + RCC_MP_ENCLRR_OFFSET, BIT(gate->bit_idx));
+		if (gate->set_clr)
+			io_write32(addr + RCC_MP_ENCLRR_OFFSET,
+				   BIT(gate->bit_idx));
 		else
 			io_clrbits32_stm32shregs(addr, BIT(gate->bit_idx));
 	}
 }
 
-void clk_stm32_disable_gate(uint16_t gate_id)
+void stm32_gate_disable(uint16_t gate_id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	uint8_t *gate_cpt = priv->gate_cpt;
@@ -88,23 +89,21 @@ void clk_stm32_disable_gate(uint16_t gate_id)
 	if (--gate_cpt[gate_id] > 0)
 		return;
 
-	clk_stm32_endisable_gate(gate_id, false);
+	stm32_gate_endisable(gate_id, false);
 }
 
-int clk_stm32_enable_gate(uint16_t gate_id)
+void stm32_gate_enable(uint16_t gate_id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	uint8_t *gate_cpt = priv->gate_cpt;
 
 	if (gate_cpt[gate_id]++ > 0)
-		return 0;
+		return;
 
-	clk_stm32_endisable_gate(gate_id, true);
-
-	return 0;
+	stm32_gate_endisable(gate_id, true);
 }
 
-bool clk_stm32_is_enabled_gate(uint16_t gate_id)
+bool stm32_gate_is_enabled(uint16_t gate_id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct gate_cfg *gate = &priv->gates[gate_id];
@@ -113,7 +112,7 @@ bool clk_stm32_is_enabled_gate(uint16_t gate_id)
 	return (io_read32(addr) & BIT(gate->bit_idx)) != 0U;
 }
 
-int clk_stm32_wait_ready_gate(uint16_t gate_id, bool ready_on)
+TEE_Result stm32_gate_wait_ready(uint16_t gate_id, bool ready_on)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct gate_cfg *gate = &priv->gates[gate_id];
@@ -130,39 +129,38 @@ int clk_stm32_wait_ready_gate(uint16_t gate_id, bool ready_on)
 			break;
 
 	if ((io_read32(address) & mask_rdy) != mask)
-		return -1;
+		return TEE_ERROR_GENERIC;
 
-	return 0;
+	return TEE_SUCCESS;
 }
 
-/* STM32 GATE READY CLOCK OPS */
-int clk_stm32_gate_ready_endisable(uint16_t gate_id, bool enable, bool wait_rdy)
+/* STM32 GATE READY clock operators */
+static TEE_Result stm32_gate_ready_endisable(uint16_t gate_id, bool enable,
+					     bool wait_rdy)
 {
-	clk_stm32_endisable_gate(gate_id, enable);
+	stm32_gate_endisable(gate_id, enable);
 
-	if (wait_rdy == true)
-		return clk_stm32_wait_ready_gate(gate_id + 1, enable);
+	if (wait_rdy)
+		return stm32_gate_wait_ready(gate_id + 1, enable);
 
-	return 0;
+	return TEE_SUCCESS;
 }
 
-int clk_stm32_gate_rdy_enable(uint16_t gate_id)
+TEE_Result stm32_gate_rdy_enable(uint16_t gate_id)
 {
-	return clk_stm32_gate_ready_endisable(gate_id, true, true);
+	return stm32_gate_ready_endisable(gate_id, true, true);
 }
 
-int clk_stm32_gate_rdy_disable(uint16_t gate_id)
+TEE_Result stm32_gate_rdy_disable(uint16_t gate_id)
 {
-	return clk_stm32_gate_ready_endisable(gate_id, false, true);
+	return stm32_gate_ready_endisable(gate_id, false, true);
 }
 
 /* STM32 DIV API */
-#define clk_div_mask(_width) GENMASK_32(((_width) - 1U), 0U)
-
 static unsigned int _get_table_div(const struct div_table_cfg *table,
 				   unsigned int val)
 {
-	const struct div_table_cfg *clkt;
+	const struct div_table_cfg *clkt = NULL;
 
 	for (clkt = table; clkt->div; clkt++)
 		if (clkt->val == val)
@@ -171,15 +169,15 @@ static unsigned int _get_table_div(const struct div_table_cfg *table,
 	return 0;
 }
 
-
 static unsigned int _get_table_val(const struct div_table_cfg *table,
 				   unsigned int div)
 {
-	const struct div_table_cfg *clkt;
+	const struct div_table_cfg *clkt = NULL;
 
 	for (clkt = table; clkt->div; clkt++)
 		if (clkt->div == div)
 			return clkt->val;
+
 	return 0;
 }
 
@@ -187,16 +185,16 @@ static unsigned int _get_div(const struct div_table_cfg *table,
 			     unsigned int val, unsigned long flags,
 			     uint8_t width)
 {
-	if ((flags & CLK_DIVIDER_ONE_BASED) != 0UL)
+	if (flags & CLK_DIVIDER_ONE_BASED)
 		return val;
 
-	if ((flags & CLK_DIVIDER_POWER_OF_TWO) != 0UL)
+	if (flags & CLK_DIVIDER_POWER_OF_TWO)
 		return BIT(val);
 
-	if ((flags & CLK_DIVIDER_MAX_AT_ZERO) != 0UL)
+	if (flags & CLK_DIVIDER_MAX_AT_ZERO)
 		return (val != 0U) ? val : BIT(width);
 
-	if (table != NULL)
+	if (table)
 		return _get_table_div(table, val);
 
 	return val + 1U;
@@ -206,30 +204,25 @@ static unsigned int _get_val(const struct div_table_cfg *table,
 			     unsigned int div, unsigned long flags,
 			     uint8_t width)
 {
-	if ((flags & CLK_DIVIDER_ONE_BASED) != 0UL)
+	if (flags & CLK_DIVIDER_ONE_BASED)
 		return div;
 
-	if ((flags & CLK_DIVIDER_POWER_OF_TWO) != 0UL)
+	if (flags & CLK_DIVIDER_POWER_OF_TWO)
 		return __builtin_ffs(div) - 1;
 
-	if ((flags & CLK_DIVIDER_MAX_AT_ZERO) != 0UL)
+	if (flags & CLK_DIVIDER_MAX_AT_ZERO)
 		return (div != 0U) ? div : BIT(width);
 
-	if (table != NULL)
+	if (table)
 		return _get_table_val(table, div);
 
 	return div - 1U;
 }
 
-static bool is_power_of_2(unsigned long n)
-{
-	return (n != 0 && ((n & (n - 1)) == 0));
-}
-
 static bool _is_valid_table_div(const struct div_table_cfg *table,
 				unsigned int div)
 {
-	const struct div_table_cfg *clkt;
+	const struct div_table_cfg *clkt = NULL;
 
 	for (clkt = table; clkt->div; clkt++)
 		if (clkt->div == div)
@@ -242,7 +235,7 @@ static bool _is_valid_div(const struct div_table_cfg *table,
 			  unsigned int div, unsigned long flags)
 {
 	if (flags & CLK_DIVIDER_POWER_OF_TWO)
-		return is_power_of_2(div);
+		return IS_POWER_OF_TWO(div);
 
 	if (table)
 		return _is_valid_table_div(table, div);
@@ -264,27 +257,27 @@ static int divider_get_val(unsigned long rate, unsigned long parent_rate,
 
 	value = _get_val(table, div, flags, width);
 
-	return MIN(value, clk_div_mask(width));
+	return MIN(value, MASK_WIDTH_SHIFT(width, 0));
 }
 
-uint32_t clk_stm32_div_get_value(int div_id)
+uint32_t stm32_div_get_value(int div_id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct div_cfg *divider = &priv->div[div_id];
 	uint32_t val = 0;
 
 	val = io_read32(priv->base + divider->offset) >> divider->shift;
-	val &= clk_div_mask(divider->width);
+	val &= MASK_WIDTH_SHIFT(divider->width, 0);
 
 	return val;
 }
 
-int clk_stm32_set_div_value(uint32_t div_id, uint32_t value)
+TEE_Result stm32_div_set_value(uint32_t div_id, uint32_t value)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
-	const struct div_cfg *divider;
-	uintptr_t address;
-	uint32_t mask;
+	const struct div_cfg *divider = NULL;
+	uintptr_t address = 0;
+	uint32_t mask = 0;
 
 	if (div_id >= priv->nb_div)
 		panic();
@@ -296,27 +289,27 @@ int clk_stm32_set_div_value(uint32_t div_id, uint32_t value)
 	io_clrsetbits32(address, mask, (value << divider->shift) & mask);
 
 	if (divider->ready == DIV_NO_RDY)
-		return 0;
+		return TEE_SUCCESS;
 
-	return clk_stm32_wait_ready_gate((uint16_t) divider->ready, true);
+	return stm32_gate_wait_ready((uint16_t)divider->ready, true);
 }
 
-unsigned long clk_stm32_get_rate_divider(int div_id, unsigned long prate)
+static unsigned long stm32_div_get_rate(int div_id, unsigned long prate)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct div_cfg *divider = &priv->div[div_id];
-	uint32_t val = clk_stm32_div_get_value(div_id);
+	uint32_t val = stm32_div_get_value(div_id);
 	unsigned int div = 0U;
 
 	div = _get_div(divider->table, val, divider->flags, divider->width);
-	if (div == 0U)
+	if (!div)
 		return prate;
 
 	return ROUNDUP_DIV((uint64_t)prate, div);
 }
 
-int clk_stm32_set_rate_divider(int div_id, unsigned long rate,
-			       unsigned long prate)
+TEE_Result stm32_div_set_rate(int div_id, unsigned long rate,
+			      unsigned long prate)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	const struct div_cfg *divider = &priv->div[div_id];
@@ -326,24 +319,24 @@ int clk_stm32_set_rate_divider(int div_id, unsigned long rate,
 				divider->width, divider->flags);
 
 	if (value < 0)
-		return value;
+		return TEE_ERROR_GENERIC;
 
-	return clk_stm32_set_div_value(div_id, value);
+	return stm32_div_set_value(div_id, value);
 }
 
-/* STM32 MUX CLOCK OPS */
-size_t clk_stm32_mux_get_parent(struct clk *clk)
+/* STM32 MUX clock operators */
+static size_t clk_stm32_mux_get_parent(struct clk *clk)
 {
 	struct clk_stm32_mux_cfg *cfg = clk->priv;
 
-	return clk_stm32_get_parent_mux(cfg->mux_id);
+	return stm32_mux_get_parent(cfg->mux_id);
 }
 
-TEE_Result clk_stm32_mux_set_parent(struct clk *clk, size_t pidx)
+static TEE_Result clk_stm32_mux_set_parent(struct clk *clk, size_t pidx)
 {
 	struct clk_stm32_mux_cfg *cfg = clk->priv;
 
-	return clk_stm32_set_parent_mux(cfg->mux_id, pidx);
+	return stm32_mux_set_parent(cfg->mux_id, pidx);
 }
 
 const struct clk_ops clk_stm32_mux_ops = {
@@ -351,26 +344,28 @@ const struct clk_ops clk_stm32_mux_ops = {
 	.set_parent	= clk_stm32_mux_set_parent,
 };
 
-/* STM32 GATE CLOCK OPS */
+/* STM32 GATE clock operators */
 static TEE_Result clk_stm32_gate_enable(struct clk *clk)
 {
 	struct clk_stm32_gate_cfg *cfg = clk->priv;
 
-	return clk_stm32_enable_gate(cfg->gate_id);
+	stm32_gate_enable(cfg->gate_id);
+
+	return TEE_SUCCESS;
 }
 
 static void clk_stm32_gate_disable(struct clk *clk)
 {
 	struct clk_stm32_gate_cfg *cfg = clk->priv;
 
-	clk_stm32_disable_gate(cfg->gate_id);
+	stm32_gate_disable(cfg->gate_id);
 }
 
 static bool clk_stm32_gate_is_enabled(struct clk *clk)
 {
 	struct clk_stm32_gate_cfg *cfg = clk->priv;
 
-	return clk_stm32_is_enabled_gate(cfg->gate_id);
+	return stm32_gate_is_enabled(cfg->gate_id);
 }
 
 const struct clk_ops clk_stm32_gate_ops = {
@@ -383,19 +378,14 @@ static TEE_Result clk_stm32_gate_ready_enable(struct clk *clk)
 {
 	struct clk_stm32_gate_cfg *cfg = clk->priv;
 
-	if (clk_stm32_gate_rdy_enable(cfg->gate_id) != 0U) {
-		EMSG("%s timeout\n", clk_get_name(clk));
-		panic();
-	}
-
-	return 0;
+	return stm32_gate_rdy_enable(cfg->gate_id);
 }
 
 static void clk_stm32_gate_ready_disable(struct clk *clk)
 {
 	struct clk_stm32_gate_cfg *cfg = clk->priv;
 
-	if (clk_stm32_gate_rdy_disable(cfg->gate_id) != 0U)
+	if (stm32_gate_rdy_disable(cfg->gate_id))
 		panic();
 }
 
@@ -405,13 +395,13 @@ const struct clk_ops clk_stm32_gate_ready_ops = {
 	.is_enabled	= clk_stm32_gate_is_enabled,
 };
 
-/* STM32 DIV CLOCK OPS */
+/* STM32 DIV clock operators */
 unsigned long clk_stm32_divider_get_rate(struct clk *clk,
-					unsigned long parent_rate)
+					 unsigned long parent_rate)
 {
 	struct clk_stm32_div_cfg *cfg = clk->priv;
 
-	return clk_stm32_get_rate_divider(cfg->div_id, parent_rate);
+	return stm32_div_get_rate(cfg->div_id, parent_rate);
 }
 
 TEE_Result clk_stm32_divider_set_rate(struct clk *clk,
@@ -420,7 +410,7 @@ TEE_Result clk_stm32_divider_set_rate(struct clk *clk,
 {
 	struct clk_stm32_div_cfg *cfg = clk->priv;
 
-	return clk_stm32_set_rate_divider(cfg->div_id, rate, parent_rate);
+	return stm32_div_set_rate(cfg->div_id, rate, parent_rate);
 }
 
 const struct clk_ops clk_stm32_divider_ops = {
@@ -428,28 +418,27 @@ const struct clk_ops clk_stm32_divider_ops = {
 	.set_rate	= clk_stm32_divider_set_rate,
 };
 
-/* STM32 COMPOSITE CLOCK OPS */
+/* STM32 COMPOSITE clock operators */
 size_t clk_stm32_composite_get_parent(struct clk *clk)
 {
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
 	if (cfg->mux_id == NO_MUX) {
-		/* TODO: it could be a normal case */
+		/* It could be a normal case */
 		return 0;
 	}
 
-	return clk_stm32_get_parent_mux(cfg->mux_id);
+	return stm32_mux_get_parent(cfg->mux_id);
 }
 
 TEE_Result clk_stm32_composite_set_parent(struct clk *clk, size_t pidx)
 {
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
-	if (cfg->mux_id == NO_MUX) {
+	if (cfg->mux_id == NO_MUX)
 		panic();
-	}
 
-	return clk_stm32_set_parent_mux(cfg->mux_id, pidx);
+	return stm32_mux_set_parent(cfg->mux_id, pidx);
 }
 
 unsigned long clk_stm32_composite_get_rate(struct clk *clk,
@@ -460,7 +449,7 @@ unsigned long clk_stm32_composite_get_rate(struct clk *clk,
 	if (cfg->div_id == NO_DIV)
 		return parent_rate;
 
-	return clk_stm32_get_rate_divider(cfg->div_id, parent_rate);
+	return stm32_div_get_rate(cfg->div_id, parent_rate);
 }
 
 TEE_Result clk_stm32_composite_set_rate(struct clk *clk, unsigned long rate,
@@ -469,30 +458,32 @@ TEE_Result clk_stm32_composite_set_rate(struct clk *clk, unsigned long rate,
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
 	if (cfg->div_id == NO_DIV)
-		return 0;
+		return TEE_SUCCESS;
 
-	return clk_stm32_set_rate_divider(cfg->div_id, rate, parent_rate);
+	return stm32_div_set_rate(cfg->div_id, rate, parent_rate);
 }
 
 TEE_Result clk_stm32_composite_gate_enable(struct clk *clk)
 {
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
-	return clk_stm32_enable_gate(cfg->gate_id);
+	stm32_gate_enable(cfg->gate_id);
+
+	return TEE_SUCCESS;
 }
 
 void clk_stm32_composite_gate_disable(struct clk *clk)
 {
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
-	clk_stm32_disable_gate(cfg->gate_id);
+	stm32_gate_disable(cfg->gate_id);
 }
 
 bool clk_stm32_composite_gate_is_enabled(struct clk *clk)
 {
 	struct clk_stm32_composite_cfg *cfg = clk->priv;
 
-	return clk_stm32_is_enabled_gate(cfg->gate_id);
+	return stm32_gate_is_enabled(cfg->gate_id);
 }
 
 const struct clk_ops clk_stm32_composite_ops = {
@@ -540,24 +531,21 @@ static bool clk_stm32_get_ignore_unused_property(void)
 int clk_stm32_parse_fdt_by_name(const void *fdt, int node, const char *name,
 				uint32_t *tab, uint32_t *nb)
 {
-	const fdt32_t *cell;
+	const fdt32_t *cell = NULL;
 	int len = 0;
-	uint32_t i;
+	uint32_t i = 0;
 
 	cell = fdt_getprop(fdt, node, name, &len);
-	if (cell != NULL) {
-		for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++) {
-			uint32_t val = fdt32_to_cpu(cell[i]);
-
-			tab[i] = val;
-		}
-	}
+	if (cell)
+		for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++)
+			tab[i] = fdt32_to_cpu(cell[i]);
 
 	*nb = (uint32_t)len / sizeof(uint32_t);
 
 	return 0;
 }
-int clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base)
+
+TEE_Result clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base)
 {
 	stm32_clock_data = priv;
 
@@ -569,17 +557,18 @@ int clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base)
 
 	priv->clk_ignore_unused = clk_stm32_get_ignore_unused_property();
 
-	return 0;
+	return TEE_SUCCESS;
 }
 
-unsigned long fixed_factor_get_rate(struct clk *clk, unsigned long parent_rate)
+static unsigned long fixed_factor_get_rate(struct clk *clk,
+					   unsigned long parent_rate)
 {
 	struct fixed_factor_cfg *d = clk->priv;
 
 	unsigned long long rate = (unsigned long long)parent_rate * d->mult;
 
 	if (d->div == 0U)
-		panic("error division by zero\n");
+		panic("error division by zero");
 
 	return (unsigned long)(rate / d->div);
 };
@@ -631,12 +620,12 @@ static struct clk *stm32mp_clk_dt_get_clk(struct dt_driver_phandle_args *pargs,
 
 static void clk_stm32_register_clocks(struct clk_stm32_priv *priv)
 {
-	size_t i = 0;
+	unsigned int i = 0;
 
-	for(i = 0; i < priv->nb_clk_refs; i++) {
+	for (i = 0; i < priv->nb_clk_refs; i++) {
 		struct clk *clk = priv->clk_refs[i];
 
-		if (clk == NULL)
+		if (!clk)
 			continue;
 
 		refcount_set(&clk->enabled_count, 0);
@@ -646,10 +635,10 @@ static void clk_stm32_register_clocks(struct clk_stm32_priv *priv)
 	}
 
 	/* Critical clocks management */
-	for(i = 0; i < priv->nb_clk_refs; i++) {
+	for (i = 0; i < priv->nb_clk_refs; i++) {
 		struct clk *clk = priv->clk_refs[i];
 
-		if (clk == NULL)
+		if (!clk)
 			continue;
 
 		if (priv->is_critical && priv->is_critical(clk))

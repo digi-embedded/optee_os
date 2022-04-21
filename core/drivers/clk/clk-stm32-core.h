@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause) */
 /*
- * Copyright (C) 2018-2022, STMicroelectronics - All Rights Reserved
+ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
  */
 
 #ifndef CLK_STM32_CORE_H
@@ -108,41 +108,34 @@ struct clk_stm32_gate_ready_cfg {
 #define MUX_NO_RDY		UINT8_MAX
 
 #define MASK_WIDTH_SHIFT(_width, _shift) \
-	GENMASK_32(((_width) + (_shift) - 1U), _shift)
+	GENMASK_32(((_width) + (_shift) - 1U), (_shift))
 
 /* Define for composite clocks */
 #define NO_MUX		INT32_MAX
 #define NO_DIV		INT32_MAX
 #define NO_GATE		INT32_MAX
 
-int clk_stm32_enable_gate(uint16_t gate_id);
-void clk_stm32_disable_gate(uint16_t gate_id);
-void clk_stm32_endisable_gate(uint16_t gate_id, bool enable);
-bool clk_stm32_is_enabled_gate(uint16_t gate_id);
-int clk_stm32_gate_ready_endisable(uint16_t gate_id, bool enable,
-				   bool wait_rdy);
-int clk_stm32_wait_ready_gate(uint16_t gate_id, bool ready_on);
-int clk_stm32_gate_rdy_enable(uint16_t gate_id);
-int clk_stm32_gate_rdy_disable(uint16_t gate_id);
-int clk_stm32_get_parent_mux(uint32_t mux_id);
-int clk_stm32_set_parent_mux(uint16_t pid, uint8_t sel);
-int clk_stm32_set_rate_divider(int div_id, unsigned long rate,
-			       unsigned long prate);
+void stm32_gate_enable(uint16_t gate_id);
+void stm32_gate_disable(uint16_t gate_id);
+bool stm32_gate_is_enabled(uint16_t gate_id);
+TEE_Result stm32_gate_wait_ready(uint16_t gate_id, bool ready_on);
+TEE_Result stm32_gate_rdy_enable(uint16_t gate_id);
+TEE_Result stm32_gate_rdy_disable(uint16_t gate_id);
 
+size_t stm32_mux_get_parent(uint32_t mux_id);
+TEE_Result stm32_mux_set_parent(uint16_t pid, uint8_t sel);
 
-uint32_t clk_stm32_div_get_value(int div_id);
-int clk_stm32_set_div_value(uint32_t div_id, uint32_t value);
-unsigned long clk_stm32_get_rate_divider(int div_id, unsigned long prate);
+TEE_Result stm32_div_set_rate(int div_id, unsigned long rate,
+			      unsigned long prate);
+
+uint32_t stm32_div_get_value(int div_id);
+TEE_Result stm32_div_set_value(uint32_t div_id, uint32_t value);
 
 int clk_stm32_parse_fdt_by_name(const void *fdt, int node, const char *name,
 				uint32_t *tab, uint32_t *nb);
 
-
-size_t clk_stm32_mux_get_parent(struct clk *clk);
-TEE_Result clk_stm32_mux_set_parent(struct clk *clk, size_t pidx);
-
 unsigned long clk_stm32_divider_get_rate(struct clk *clk,
-					unsigned long parent_rate);
+					 unsigned long parent_rate);
 
 TEE_Result clk_stm32_divider_set_rate(struct clk *clk,
 				      unsigned long rate,
@@ -160,9 +153,6 @@ bool clk_stm32_composite_gate_is_enabled(struct clk *clk);
 
 TEE_Result clk_stm32_set_parent_by_index(struct clk *clk, size_t pidx);
 
-unsigned long fixed_factor_get_rate(struct clk *clk, unsigned long parent_rate);
-
-
 extern const struct clk_ops clk_fixed_factor_ops;
 extern const struct clk_ops clk_fixed_clk_ops;
 extern const struct clk_ops clk_stm32_gate_ops;
@@ -174,96 +164,96 @@ extern const struct clk_ops clk_stm32_composite_ops;
 #define PARENT(x...) { x }
 
 #define STM32_FIXED_RATE(_name, _rate)\
- struct clk _name = {\
-	.ops	= &clk_fixed_clk_ops,\
-	.priv		= &(struct clk_fixed_rate_cfg) {\
-		.rate	= (_rate),\
-	},\
-	.name		= #_name,\
-	.flags		= 0,\
-	.num_parents	= 0,\
-}
+	struct clk _name = {\
+		.ops = &clk_fixed_clk_ops,\
+		.priv = &(struct clk_fixed_rate_cfg) {\
+			.rate = (_rate),\
+		},\
+		.name = #_name,\
+		.flags = 0,\
+		.num_parents = 0,\
+	}
 
-#define STM32_FIXED_FACTOR(_name, _parent, _flags, _mult_, _div)\
- struct clk _name = {\
-	.ops	= &clk_fixed_factor_ops,\
-	.priv		= &(struct fixed_factor_cfg) {\
-		.mult	= _mult_,\
-		.div	= _div,\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= 1,\
-	.parents	= { _parent },\
-}
+#define STM32_FIXED_FACTOR(_name, _parent, _flags, _mult, _div)\
+	struct clk _name = {\
+		.ops = &clk_fixed_factor_ops,\
+		.priv = &(struct fixed_factor_cfg) {\
+			.mult = _mult,\
+			.div = _div,\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = 1,\
+		.parents = { (_parent) },\
+	}
 
 #define STM32_GATE(_name, _parent, _flags, _gate_id)\
-struct clk _name = {\
-	.ops	= &clk_stm32_gate_ops,\
-	.priv		= &(struct clk_stm32_gate_cfg) {\
-		.gate_id	= _gate_id,\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= 1,\
-	.parents	= { _parent },\
-}
+	struct clk _name = {\
+		.ops = &clk_stm32_gate_ops,\
+		.priv = &(struct clk_stm32_gate_cfg) {\
+			.gate_id = _gate_id,\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = 1,\
+		.parents = { (_parent) },\
+	}
 
 #define STM32_DIVIDER(_name, _parent, _flags, _div_id)\
-struct clk _name = {\
-	.ops	= &clk_stm32_divider_ops,\
-	.priv		= &(struct clk_stm32_div_cfg) {\
-		.div_id		= (_div_id),\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= 1,\
-	.parents	= { _parent },\
-}
+	struct clk _name = {\
+		.ops = &clk_stm32_divider_ops,\
+		.priv = &(struct clk_stm32_div_cfg) {\
+			.div_id = (_div_id),\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = 1,\
+		.parents = { (_parent) },\
+	}
 
 #define STM32_MUX(_name, _nb_parents, _parents, _flags, _mux_id)\
-struct clk _name = {\
-	.ops	= &clk_stm32_mux_ops,\
-	.priv		= &(struct clk_stm32_mux_cfg) {\
-		.mux_id		= (_mux_id),\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= (_nb_parents),\
-	.parents	=  _parents ,\
-}
+	struct clk _name = {\
+		.ops = &clk_stm32_mux_ops,\
+		.priv = &(struct clk_stm32_mux_cfg) {\
+			.mux_id = (_mux_id),\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = (_nb_parents),\
+		.parents = _parents,\
+	}
 
 #define STM32_GATE_READY(_name, _parent, _flags, _gate_id)\
-struct clk _name = {\
-	.ops	= &clk_stm32_gate_ready_ops,\
-	.priv		= &(struct clk_stm32_gate_cfg) {\
-		.gate_id	= _gate_id,\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= 1,\
-	.parents	= { _parent },\
-}
+	struct clk _name = {\
+		.ops = &clk_stm32_gate_ready_ops,\
+		.priv = &(struct clk_stm32_gate_cfg) {\
+			.gate_id = _gate_id,\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = 1,\
+		.parents = { _parent },\
+	}
 
 #define STM32_COMPOSITE(_name, _nb_parents, _parents, _flags,\
 			_gate_id, _div_id, _mux_id)\
- struct clk _name = {\
-	.ops	= &clk_stm32_composite_ops,\
-	.priv		= &(struct clk_stm32_composite_cfg) {\
-		.gate_id	= (_gate_id),\
-		.div_id		= (_div_id),\
-		.mux_id		= (_mux_id),\
-	},\
-	.name		= #_name,\
-	.flags		= (_flags),\
-	.num_parents	= (_nb_parents),\
-	.parents	=  _parents ,\
-}
+	struct clk _name = {\
+		.ops = &clk_stm32_composite_ops,\
+		.priv = &(struct clk_stm32_composite_cfg) {\
+			.gate_id = (_gate_id),\
+			.div_id = (_div_id),\
+			.mux_id = (_mux_id),\
+		},\
+		.name = #_name,\
+		.flags = (_flags),\
+		.num_parents = (_nb_parents),\
+		.parents = _parents,\
+	}
 
 struct clk_stm32_priv *clk_stm32_get_priv(void);
 uintptr_t clk_stm32_get_rcc_base(void);
 
-int clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base);
+TEE_Result clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base);
 
 void stm32mp_clk_provider_probe_final(const void *fdt, int node,
 				      struct clk_stm32_priv *priv);
