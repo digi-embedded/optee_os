@@ -193,6 +193,7 @@ $(call force,CFG_STM32_TAMP,n)
 $(call force,CFG_STM32_TIM,n)
 $(call force,CFG_STM32_VREFBUF,y)
 $(call force,CFG_STPMIC1,n)
+$(call force,CFG_STM32MP1_REGULATOR_IOD,n)
 $(call force,CFG_STM32MP1_SCMI_SIP,n)
 $(call force,CFG_SCMI_PTA,n)
 else
@@ -238,6 +239,7 @@ CFG_STM32_TIM ?= y
 CFG_STM32_UART ?= y
 CFG_STM32_VREFBUF ?= y
 CFG_STM32MP1_CPU_OPP ?= y
+CFG_STM32MP1_REGULATOR_IOD ?= y
 CFG_STPMIC1 ?= y
 CFG_SYSCFG ?= y
 CFG_TZC400 ?= y
