@@ -1,68 +1,75 @@
 // SPDX-License-Identifier: BSD-2-Clause
 /*
- * Copyright (c) 2020-2021, STMicroelectronics
+ * Copyright (c) 2020-2022, STMicroelectronics
  */
 
-#include <assert.h>
-#include <compiler.h>
 #include <drivers/regulator.h>
 #include <drivers/stm32_gpio.h>
 #include <gpio.h>
-#include <initcall.h>
-#include <keep.h>
-#include <kernel/boot.h>
 #include <kernel/dt.h>
-#include <kernel/panic.h>
 #include <libfdt.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stm32_util.h>
 #include <trace.h>
 
-#define GPIO_REGULATOR_NAME_LEN	16
-#define GPIO_REGULATOR_MAX_STATES	2
+#define GPIO_REGULATOR_NAME_LEN		U(16)
+#define MAX_VOLTAGE_LIST_SIZE		U(2)
 
 struct gpio_regul {
-	char name[GPIO_REGULATOR_NAME_LEN];
 	struct regul_desc desc;
-	struct stm32_pinctrl_list *pinctrl;
-	uint16_t gpio_low_mv;
-	uint16_t gpio_high_mv;
-	uint16_t gpio_voltage_table[2];
+	struct regul_ops ops;
+	unsigned int enable_gpio;
+	unsigned int voltage_gpio;
+	uint16_t gpio_voltage_table[MAX_VOLTAGE_LIST_SIZE];
+	char name[GPIO_REGULATOR_NAME_LEN];
+	bool enable_active_high;
+	bool voltage_level_high;
 };
 
-static TEE_Result gpio_set_state(const struct regul_desc *desc __unused,
-				 bool enable __unused)
+static TEE_Result set_state_always_on(const struct regul_desc *desc __unused,
+				      bool enable __unused)
 {
 	return TEE_SUCCESS;
 }
 
-static TEE_Result gpio_get_state(const struct regul_desc *desc __unused,
-				 bool *enabled)
+static TEE_Result get_state_always_on(const struct regul_desc *desc __unused,
+				      bool *enabled __unused)
 {
 	*enabled = true;
 
 	return TEE_SUCCESS;
 }
 
-static TEE_Result gpio_get_voltage(const struct regul_desc *desc, uint16_t *mv)
+static TEE_Result gpio_set_state(const struct regul_desc *desc, bool enable)
 {
 	struct gpio_regul *gr = (struct gpio_regul *)desc->driver_data;
-	struct stm32_pinctrl *pinctrl = NULL;
-	unsigned int gpio = 0;
+	enum gpio_level level = GPIO_LEVEL_LOW;
 
-	FMSG("%s: get volt", desc->node_name);
+	FMSG("regul %s set state=%u\n", desc->node_name, enable);
 
-	pinctrl = STAILQ_FIRST(gr->pinctrl);
-	if (!pinctrl)
-		panic();
+	if (!gr->enable_active_high)
+		enable = !enable;
 
-	gpio = stm32_pinctrl_get_gpio_id(pinctrl);
+	level = enable ? GPIO_LEVEL_HIGH : GPIO_LEVEL_LOW;
 
-	if (stm32_gpio_get_ops()->get_value(NULL, gpio) == GPIO_LEVEL_HIGH)
-		*mv = gr->gpio_high_mv;
-	else
-		*mv = gr->gpio_low_mv;
+	stm32_gpio_get_ops()->set_value(NULL, gr->enable_gpio, level);
+
+	return TEE_SUCCESS;
+}
+
+static TEE_Result gpio_get_state(const struct regul_desc *desc, bool *enabled)
+{
+	struct gpio_regul *gr = (struct gpio_regul *)desc->driver_data;
+	enum gpio_level level = GPIO_LEVEL_LOW;
+
+	level = stm32_gpio_get_ops()->get_value(NULL, gr->enable_gpio);
+
+	*enabled = level == GPIO_LEVEL_HIGH;
+
+	if (!gr->enable_active_high)
+		*enabled = !(*enabled);
+
+	FMSG("regul %s get state=%u\n", desc->node_name, *enabled);
 
 	return TEE_SUCCESS;
 }
@@ -70,24 +77,39 @@ static TEE_Result gpio_get_voltage(const struct regul_desc *desc, uint16_t *mv)
 static TEE_Result gpio_set_voltage(const struct regul_desc *desc, uint16_t mv)
 {
 	struct gpio_regul *gr = (struct gpio_regul *)desc->driver_data;
-	struct stm32_pinctrl *pinctrl = NULL;
-	unsigned int gpio = 0;
 	enum gpio_level level = GPIO_LEVEL_LOW;
 
 	FMSG("%s: set volt", desc->node_name);
 
-	pinctrl = STAILQ_FIRST(gr->pinctrl);
-	if (!pinctrl)
-		panic();
-
-	gpio = stm32_pinctrl_get_gpio_id(pinctrl);
-
-	if (mv == gr->gpio_high_mv)
+	if (mv == gr->gpio_voltage_table[1])
 		level = GPIO_LEVEL_HIGH;
-	else if (mv != gr->gpio_low_mv)
-		panic();
+	else if (mv != gr->gpio_voltage_table[0])
+		return TEE_ERROR_BAD_PARAMETERS;
 
-	stm32_gpio_get_ops()->set_value(NULL, gpio, level);
+	if (!gr->voltage_level_high)
+		level = level == GPIO_LEVEL_HIGH ? GPIO_LEVEL_LOW :
+						   GPIO_LEVEL_HIGH;
+
+	stm32_gpio_get_ops()->set_value(NULL, gr->voltage_gpio, level);
+
+	return TEE_SUCCESS;
+}
+
+static TEE_Result gpio_get_voltage(const struct regul_desc *desc, uint16_t *mv)
+{
+	struct gpio_regul *gr = (struct gpio_regul *)desc->driver_data;
+	enum gpio_level level = GPIO_LEVEL_LOW;
+
+	FMSG("%s: get volt", desc->node_name);
+
+	level = stm32_gpio_get_ops()->get_value(NULL, gr->voltage_gpio);
+
+	if (!gr->voltage_level_high)
+		level = level == GPIO_LEVEL_HIGH ? GPIO_LEVEL_LOW :
+						   GPIO_LEVEL_HIGH;
+
+	*mv = level == GPIO_LEVEL_HIGH ? gr->gpio_voltage_table[1] :
+					 gr->gpio_voltage_table[0];
 
 	return TEE_SUCCESS;
 }
@@ -103,25 +125,33 @@ static TEE_Result gpio_list_voltages(const struct regul_desc *desc,
 	return TEE_SUCCESS;
 }
 
-static struct regul_ops gpio_regul_ops = {
-	.set_state = gpio_set_state,
-	.get_state = gpio_get_state,
-	.set_voltage = gpio_set_voltage,
-	.get_voltage = gpio_get_voltage,
-	.list_voltages = gpio_list_voltages,
-};
-DECLARE_KEEP_PAGER(gpio_regul_ops);
+static TEE_Result get_pinctrl_from_index(struct stm32_pinctrl_list *list,
+					 size_t index,
+					 struct stm32_pinctrl **pin)
+{
+	size_t count = 0;
+
+	STAILQ_FOREACH(*pin, list, link) {
+		if (count == index)
+			return TEE_SUCCESS;
+
+		count++;
+	}
+
+	EMSG("Pin index not found in pinctrl list");
+
+	return TEE_ERROR_GENERIC;
+}
 
 static TEE_Result gpio_regulator_probe(const void *fdt, int node,
 				       const void *compat_data __unused)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
-
 	size_t len = 0;
 	struct gpio_regul *gr = NULL;
 	const char *reg_name = NULL;
 	const fdt32_t *cuint = NULL;
-	struct stm32_pinctrl *pinctrl = NULL;
+	struct stm32_pinctrl_list *list = NULL;
 
 	gr = calloc(1, sizeof(*gr));
 	if (!gr)
@@ -129,38 +159,89 @@ static TEE_Result gpio_regulator_probe(const void *fdt, int node,
 
 	reg_name = fdt_get_name(fdt, node, NULL);
 	len = snprintf(gr->name, sizeof(gr->name) - 1, "%s", reg_name);
-	assert(len > 0 && len < (sizeof(gr->name) - 1));
+	if ((len <= 0) ||  (len >= (sizeof(gr->name) - 1))) {
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto err;
+	}
+
+	FMSG("%s: probe", gr->name);
 
 	gr->desc.node_name = gr->name;
 	gr->desc.driver_data = gr;
-	gr->desc.ops = &gpio_regul_ops;
 
-	res = stm32_pinctrl_dt_get_by_index(fdt, node, 0, &gr->pinctrl);
-	if(res)
-		return res;
+	gr->ops.set_state = set_state_always_on;
+	gr->ops.get_state = get_state_always_on;
+	gr->desc.ops = &gr->ops;
 
-	len = 0;
+	res = stm32_pinctrl_dt_get_by_index(fdt, node, 0, &list);
+	if (res)
+		goto err;
 
-	STAILQ_FOREACH(pinctrl, gr->pinctrl, link)
-		len++;
+	cuint = fdt_getprop(fdt, node, "st,voltage_pin_index", NULL);
+	if (cuint) {
+		size_t index = (size_t)fdt32_to_cpu(*cuint);
+		struct stm32_pinctrl *pin = NULL;
+		const uint32_t *prop = NULL;
+		int count = 0;
 
-	if (len > 1)
-		panic("Too many PINCTRLs found");
+		res = get_pinctrl_from_index(list, index, &pin);
+		if (res)
+			goto err;
 
-	cuint = fdt_getprop(fdt, node, "low-level-microvolt", NULL);
-	if (cuint)
-		gr->gpio_low_mv = (uint16_t)(fdt32_to_cpu(*cuint) / 1000U);
+		gr->voltage_gpio = stm32_pinctrl_get_gpio_id(pin);
 
-	cuint = fdt_getprop(fdt, node, "high-level-microvolt", NULL);
-	if (cuint)
-		gr->gpio_high_mv = (uint16_t)(fdt32_to_cpu(*cuint) / 1000U);
+		prop = fdt_getprop(fdt, node, "states", &count);
+		if (!prop) {
+			res = TEE_ERROR_ITEM_NOT_FOUND;
+			goto err;
+		}
 
-	if (gr->gpio_low_mv < gr->gpio_high_mv) {
-		gr->gpio_voltage_table[0] = gr->gpio_low_mv;
-		gr->gpio_voltage_table[1] = gr->gpio_high_mv;
-	} else {
-		gr->gpio_voltage_table[0] = gr->gpio_high_mv;
-		gr->gpio_voltage_table[1] = gr->gpio_low_mv;
+		/* The driver support only one GPIO to adjust voltage */
+		if ((count / sizeof(uint32_t)) != 4) {
+			res = TEE_ERROR_BAD_PARAMETERS;
+			goto err;
+		}
+
+		gr->gpio_voltage_table[0] = (uint16_t)(fdt32_to_cpu(prop[0]) /
+						       U(1000));
+		gr->gpio_voltage_table[1] = (uint16_t)(fdt32_to_cpu(prop[2]) /
+						       U(1000));
+
+		/* Low voltage should be lower than high voltage.*/
+		if (gr->gpio_voltage_table[0] >= gr->gpio_voltage_table[1]) {
+			res = TEE_ERROR_BAD_PARAMETERS;
+			goto err;
+		}
+
+		/* GPIO should have different states for both voltages */
+		if (fdt32_to_cpu(prop[1]) == fdt32_to_cpu(prop[3])) {
+			res = TEE_ERROR_BAD_PARAMETERS;
+			goto err;
+		}
+
+		if ((uint32_t)fdt32_to_cpu(prop[1]) == 0U)
+			gr->voltage_level_high = true;
+
+		gr->ops.set_voltage = gpio_set_voltage;
+		gr->ops.get_voltage = gpio_get_voltage;
+		gr->ops.list_voltages = gpio_list_voltages;
+	}
+
+	cuint = fdt_getprop(fdt, node, "st,enable_pin_index", NULL);
+	if (cuint) {
+		size_t index = (size_t)fdt32_to_cpu(*cuint);
+		struct stm32_pinctrl *pin = NULL;
+
+		res = get_pinctrl_from_index(list, index, &pin);
+		if (res)
+			goto err;
+
+		gr->enable_gpio = stm32_pinctrl_get_gpio_id(pin);
+		if (fdt_getprop(fdt, node, "enable-active-high", NULL))
+			gr->enable_active_high = true;
+
+		gr->ops.set_state = gpio_set_state;
+		gr->ops.get_state = gpio_get_state;
 	}
 
 	res = regulator_register(&gr->desc, node);
@@ -170,7 +251,10 @@ static TEE_Result gpio_regulator_probe(const void *fdt, int node,
 		panic();
 	}
 
-	return TEE_SUCCESS;
+err:
+	if (res)
+		free(gr);
+	return res;
 }
 
 static const struct dt_device_match gpio_regulator_match_table[] = {
