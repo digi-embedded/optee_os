@@ -1,3 +1,23 @@
+ifeq ($(CFG_EMBED_DTB),y)
+# Specific hack for stm32mp1: get DDR size from the generated DTB to be
+# embedded in core. This force CFG_DRAM_SIZE value when build config
+# files are generated.
+
+define get_memory_node
+$(shell fdtget -l $(core-embed-fdt-dtb) / | grep memory@)
+endef
+define get_memory_size
+$(shell fdtget -t u $(core-embed-fdt-dtb) /$(get_memory_node) reg | cut -d ' ' -f 2)
+endef
+
+$(conf-file): $(core-embed-fdt-dtb)
+$(conf-file): CFG_DRAM_SIZE = $(get_memory_size)
+$(conf-mk-file): $(core-embed-fdt-dtb)
+$(conf-mk-file): CFG_DRAM_SIZE = $(get_memory_size)
+$(conf-cmake-file): $(core-embed-fdt-dtb)
+$(conf-cmake-file): CFG_DRAM_SIZE = $(get_memory_size)
+endif #CFG_EMBED_DTB
+
 include core/arch/arm/kernel/link.mk
 
 ifeq ($(CFG_STM32MP15x_STM32IMAGE),y)
