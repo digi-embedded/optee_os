@@ -69,6 +69,14 @@
 		st,wakeup-pin-number = <2>;
 		status = "okay";
 	};
+
+	typec_wakeup: typec_wakeup {
+		compatible = "st,stm32mp1,pwr-irq-user";
+		/* Alert pin on PI2, wakeup_pin_5 */
+		st,wakeup-pin-number = <5>;
+		st,notif-it-id = <1>;
+		status = "okay";
+	};
 };
 
 &bsec {
@@ -145,7 +153,7 @@
 };
 
 &gpioi {
-	st,protreg = < (TZPROT(3)) >;
+	st,protreg = < (TZPROT(2)|TZPROT(3)) >;
 };
 
 &hash {
@@ -649,5 +657,9 @@
 };
 
 &wakeup_pin_1 {
+	bias-pull-up;
+};
+
+&wakeup_pin_5 {
 	bias-pull-up;
 };
