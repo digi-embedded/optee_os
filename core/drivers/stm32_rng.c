@@ -47,7 +47,7 @@
 #define RNG_NIST_CONFIG_B	U(0x1801000)
 #define RNG_NIST_CONFIG_MASK	GENMASK_32(25, 8)
 
-#define RNG_MAX_CLOCK_FREQ	U(750000)
+#define RNG_MAX_NOISE_CLK_FREQ	U(3000000)
 
 struct stm32_rng_driver_data {
 	bool has_cond_reset;
@@ -162,7 +162,7 @@ static uint32_t stm32_rng_clock_freq_restrain(struct stm32_rng_device *dev)
 	 * No need to handle the case when clock-div > 0xF as it is physically
 	 * impossible
 	 */
-	while ((clock_rate >> clock_div) > RNG_MAX_CLOCK_FREQ)
+	while ((clock_rate >> clock_div) > RNG_MAX_NOISE_CLK_FREQ)
 		clock_div++;
 
 	DMSG("RNG clk rate : %lu", clk_get_rate(dev->pdata.clock) >> clock_div);
