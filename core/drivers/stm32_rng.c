@@ -307,7 +307,23 @@ uint8_t hw_get_random_byte(void)
 
 static TEE_Result stm32_rng_pm_resume(struct stm32_rng_device *dev)
 {
-	io_write32(get_base(dev) + RNG_CR, RNG_CR_RNGEN | dev->pm_cr);
+	/* Clean error indications */
+	io_write32(get_base(dev) + RNG_SR, 0);
+
+	if (dev->ddata->has_cond_reset) {
+		/*
+		 * Correct configuration in bits [29:4] must be set in the same
+		 * access that set RNG_CR_CONDRST bit. Else config setting is
+		 * not taken into account. CONFIGLOCK bit must also be unset but
+		 * it is not handled at the moment.
+		 */
+		io_write32(get_base(dev) + RNG_CR, dev->pm_cr | RNG_CR_CONDRST);
+
+		io_clrsetbits32(get_base(dev) + RNG_CR, RNG_CR_CONDRST,
+				RNG_CR_RNGEN);
+	} else {
+		io_write32(get_base(dev) + RNG_CR, RNG_CR_RNGEN | dev->pm_cr);
+	}
 
 	return TEE_SUCCESS;
 }
