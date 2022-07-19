@@ -207,6 +207,7 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	struct stm32_pwr_data *priv = pwr_data;
 	int it = hdl->it;
 	struct stm32_pinctrl_list pinctrl_list = { };
+	struct stm32_pinctrl pin = { };
 	struct stm32_pinctrl *pinctrl = NULL;
 	unsigned int i = 0;
 
@@ -231,8 +232,10 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	}
 	assert(pinctrl);
 
+	memcpy(&pin, pinctrl, sizeof(*pinctrl));
+
 	STAILQ_INIT(&pinctrl_list);
-	STAILQ_INSERT_HEAD(&pinctrl_list, pinctrl, link);
+	STAILQ_INSERT_HEAD(&pinctrl_list, &pin, link);
 
 	stm32mp1_pwr_itr_disable(it);
 
