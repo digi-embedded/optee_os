@@ -7,7 +7,7 @@
 try:
     from elftools.elf.elffile import ELFFile
     from elftools.elf.sections import SymbolTableSection
-    from elftools.elf.enums import ENUM_P_TYPE_BASE
+    from elftools.elf.enums import ENUM_P_TYPE_ARM
     from elftools.elf.enums import *
 except ImportError:
     print("""
@@ -124,7 +124,7 @@ class SegmentHash(object):
             logging.debug("hash computed: %s" % seg.hash)
             del h
             struct.pack_into('<I', self._bufview_, self._offset,
-                             ENUM_P_TYPE_BASE[seg.header.p_type])
+                             ENUM_P_TYPE_ARM[seg.header.p_type])
             self._offset += 4
             struct.pack_into('<7I', self._bufview_, self._offset,
                              seg.header.p_offset, seg.header.p_vaddr,
@@ -327,6 +327,10 @@ def main():
     # Firmware image
     input_file = open(args.inf, 'rb')
     img = ELFFile(input_file)
+
+    # Only ARM machine has been tested and well supported yet.
+    # Indeed this script uses of ENUM_P_TYPE_ARM dic
+    assert img.get_machine_arch() in ["ARM"]
 
     # need to reopen the file to get the raw data
     with open(args.inf, 'rb') as f:
