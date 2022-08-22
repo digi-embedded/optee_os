@@ -526,12 +526,14 @@ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
 	params[3].memref.buffer = hash;
 	params[3].memref.size = TEE_SHA256_HASH_SIZE;
 
-	res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
-				  PTA_REMOTEPROC_LOAD_SEGMENT_SHA256,
-				  param_types, params, NULL);
-	if (res != TEE_SUCCESS) {
-		EMSG("Fails to load segment, res = 0x%x", res);
-		return res;
+	if (size) {
+		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
+					  PTA_REMOTEPROC_LOAD_SEGMENT_SHA256,
+					  param_types, params, NULL);
+		if (res != TEE_SUCCESS) {
+			EMSG("Fails to load segment, res = 0x%x", res);
+			return res;
+		}
 	}
 
 	/* Fill the rest of the memory with 0 */
