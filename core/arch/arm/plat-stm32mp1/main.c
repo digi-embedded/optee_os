@@ -545,7 +545,7 @@ unsigned long stm32_get_iwdg_otp_config(vaddr_t pbase)
 	return iwdg_cfg;
 }
 
-#ifdef CFG_TEE_CORE_DEBUG
+#if TRACE_LEVEL >= TRACE_DEBUG
 static const char *const dump_table[] = {
 	"usr_sp",
 	"usr_lr",
@@ -569,14 +569,14 @@ static const char *const dump_table[] = {
 #endif
 };
 
-void stm32mp_dump_core_registers(bool force_display)
+void stm32mp_dump_core_registers(bool panicking)
 {
 	static bool display;
 	size_t i = 0U;
 	uint32_t __maybe_unused *reg = NULL;
 	struct sm_nsec_ctx *sm_nsec_ctx = sm_get_nsec_ctx();
 
-	if (force_display)
+	if (panicking)
 		display = true;
 
 	if (!display)
