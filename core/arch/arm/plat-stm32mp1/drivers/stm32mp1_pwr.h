@@ -92,7 +92,8 @@ enum pwr_wkup_pins {
 
 enum pwr_wkup_flags {
 	PWR_WKUP_FLAG_RISING = 0,
-	PWR_WKUP_FLAG_FALLING,
+	PWR_WKUP_FLAG_FALLING = BIT(0),
+	PWR_WKUP_FLAG_THREADED = BIT(1),
 };
 
 TEE_Result
