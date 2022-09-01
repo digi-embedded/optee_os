@@ -126,10 +126,6 @@
 	st,protreg = < (TZPROT(9)) >;
 };
 
-&gpiod {
-	st,protreg = < (TZPROT(7)) >;
-};
-
 &gpioe {
 	st,protreg = < (TZPROT(15)) >;
 };
