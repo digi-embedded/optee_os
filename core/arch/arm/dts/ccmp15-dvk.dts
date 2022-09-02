@@ -28,6 +28,11 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+
+	memory@c0000000 {
+		reg = <0xC0000000 0x20000000>; /* 512 MiB */
+	};
+
 };
 
 &cpu1{
