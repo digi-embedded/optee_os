@@ -333,7 +333,7 @@ CFG_CORE_ASLR ?= n
 # Non-secure UART for the output console
 CFG_WITH_NSEC_UARTS ?= y
 # UART instance used for early console (0 disables early console)
-CFG_STM32_EARLY_CONSOLE_UART ?= 4
+CFG_STM32_EARLY_CONSOLE_UART ?= 0
 
 # Generate the STM32 files
 CFG_STM32MP15x_STM32IMAGE ?= n
