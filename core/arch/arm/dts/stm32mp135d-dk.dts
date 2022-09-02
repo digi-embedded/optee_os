@@ -578,7 +578,6 @@
 };
 
 &tamp {
-	status = "okay";
 	st,tamp_passive_nb_sample = <4>;
 	st,tamp_passive_sample_clk_div = <16384>;
 
