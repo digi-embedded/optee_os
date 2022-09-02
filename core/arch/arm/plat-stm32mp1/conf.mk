@@ -15,13 +15,15 @@ flavor_dts_file-135D_DK = stm32mp135d-dk.dts
 flavor_dts_file-135F_DK = stm32mp135f-dk.dts
 # Digi platforms
 flavor_dts_file-ccmp13-dvk = ccmp13-dvk.dts
+flavor_dts_file-ccmp15-dvk = ccmp15-dvk.dts
 
 flavorlist-512M = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_DK2) \
 		  $(flavor_dts_file-157D_DK1) \
 		  $(flavor_dts_file-157F_DK2) \
 		  $(flavor_dts_file-135D_DK) \
-		  $(flavor_dts_file-135F_DK)
+		  $(flavor_dts_file-135F_DK) \
+		  $(flavor_dts_file-ccmp15-dvk)
 
 flavorlist-1G = $(flavor_dts_file-157A_ED1) \
 		$(flavor_dts_file-157A_EV1) \
@@ -43,7 +45,8 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_ED1) \
 		  $(flavor_dts_file-157C_EV1) \
 		  $(flavor_dts_file-157F_ED1) \
-		  $(flavor_dts_file-157F_EV1)
+		  $(flavor_dts_file-157F_EV1) \
+		  $(flavor_dts_file-ccmp15-dvk)
 
 flavorlist-MP13 = $(flavor_dts_file-135D_DK) \
 		  $(flavor_dts_file-135F_DK) \
