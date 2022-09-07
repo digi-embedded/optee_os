@@ -41,6 +41,13 @@
 	};
 };
 
+&bsec {
+	hwid: hwid@ec {
+		reg = <0xec 0xc>;
+		st,non-secure-otp;
+	};
+};
+
 &clk_hse {
 	st,digbypass;
 };
