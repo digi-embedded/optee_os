@@ -122,6 +122,7 @@ $(call force,CFG_SCMI_MSG_PERF_DOMAIN,n)
 $(call force,CFG_SECONDARY_INIT_CNTFRQ,y)
 $(call force,CFG_STM32_PKA,n)
 $(call force,CFG_STM32_SAES,n)
+$(call force,CFG_STM32_HUK,y)
 $(call force,CFG_STM32_VREFBUF,n)
 $(call force,CFG_STM32MP13,n)
 $(call force,CFG_STM32MP15,y)
@@ -348,3 +349,9 @@ CFG_STM32_EARLY_CONSOLE_UART ?= 0
 
 # Generate the STM32 files
 CFG_STM32MP15x_STM32IMAGE ?= n
+
+# Default use a software HUK and not the unique key read from OTP
+# Not suitable for production
+ifeq ($(CFG_STM32_HUK),y)
+CFG_OTP_HW_TESTKEY ?= y
+endif
