@@ -64,6 +64,7 @@ struct stm32_rng_device {
 
 /* Expect a single RNG device */
 static struct stm32_rng_device stm32_rng;
+DECLARE_KEEP_PAGER(stm32_rng);
 
 static vaddr_t get_base(struct stm32_rng_device *dev)
 {
@@ -468,6 +469,7 @@ static const struct stm32_rng_driver_data mp13_data[] = {
 static const struct stm32_rng_driver_data mp15_data[] = {
 	{ .has_cond_reset = false },
 };
+DECLARE_KEEP_PAGER(mp15_data);
 
 static const struct dt_device_match rng_match_table[] = {
 	{ .compatible = "st,stm32mp13-rng", .compat_data = &mp13_data },
