@@ -17,6 +17,8 @@ flavor_dts_file-135F_DK = stm32mp135f-dk.dts
 flavor_dts_file-ccmp13-dvk = ccmp13-dvk.dts
 flavor_dts_file-ccmp15-dvk = ccmp15-dvk.dts
 
+flavorlist-256M = $(flavor_dts_file-ccmp13-dvk)
+
 flavorlist-512M = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_DK2) \
 		  $(flavor_dts_file-157D_DK1) \
@@ -137,6 +139,10 @@ $(call force,CFG_STM32_LTDC,y,Mandated by CFG_WITH_TUI)
 # Provision virtual space to fit 10MByte plus the TUI frame buffer
 CFG_TUI_FRAME_BUFFER_SIZE_MAX ?= 0x01000000
 CFG_RESERVED_VASPACE_SIZE ?= (10 * 1024 * 1024 + $(CFG_TUI_FRAME_BUFFER_SIZE_MAX))
+endif
+
+ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-256M)),)
+CFG_DRAM_SIZE    ?= 0x10000000
 endif
 
 ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-512M)),)
