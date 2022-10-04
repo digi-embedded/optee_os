@@ -286,6 +286,9 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	stm32_pwr_irq_set_trig(it, hdl->flags &
 			       (PWR_WKUP_FLAG_FALLING | PWR_WKUP_FLAG_RISING));
 
+	if (IS_ENABLED(CFG_STM32_EXTI))
+		stm32_exti_set_tz(PWR_EXTI_WKUP1 + it);
+
 	return TEE_SUCCESS;
 }
 
