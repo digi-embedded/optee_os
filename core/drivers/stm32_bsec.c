@@ -709,12 +709,19 @@ TEE_Result stm32_bsec_get_state(uint32_t *state)
 static void enable_nsec_access(unsigned int otp_id)
 {
 	unsigned int idx = (otp_id - otp_upper_base()) / BSEC_BITS_PER_WORD;
+	TEE_Result result = 0;
 
 	if (otp_id < otp_upper_base())
 		return;
 
-	if (otp_id > otp_max_id() || stm32_bsec_shadow_register(otp_id))
+	if (otp_id > otp_max_id())
 		panic();
+
+	result = stm32_bsec_shadow_register(otp_id);
+	if (result) {
+		EMSG("BSEC %"PRIu32" Shadowing Error %#"PRIx32, otp_id, result);
+		return;
+	}
 
 	bsec_dev.nsec_access[idx] |= BIT(otp_id % BSEC_BITS_PER_WORD);
 }
