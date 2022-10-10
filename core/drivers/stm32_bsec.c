@@ -738,7 +738,7 @@ static void bsec_dt_otp_nsec_access(void *fdt, int bsec_node)
 	fdt_for_each_subnode(bsec_subnode, fdt, bsec_node) {
 		const fdt32_t *cuint = NULL;
 		unsigned int otp_id = 0;
-		unsigned int i = 0;
+		unsigned int i, j = 0;
 		size_t size = 0;
 		uint32_t offset = 0;
 		uint32_t length = 0;
@@ -777,11 +777,25 @@ static void bsec_dt_otp_nsec_access(void *fdt, int bsec_node)
 		/* Handle different kinds of non-secure accesses */
 		if (fdt_getprop(fdt, bsec_subnode,
 				"st,non-secure-otp-provisioning", NULL)) {
-			bool locked = false;
-
+			bool locked, locked_next = false;
 			/* Check if write of OTP is locked */
 			if (stm32_bsec_read_permanent_lock(otp_id, &locked))
-				panic("BSEC: Couldn't read sw lock at init");
+				panic("BSEC: Couldn't read permanent lock at init");
+
+			/*
+			 * Check if fuses of the subnode
+			 * have the same lock status
+			 */
+			for (j = 1; j < (length / sizeof(uint32_t)); j++) {
+				stm32_bsec_read_permanent_lock(otp_id + j,
+							       &locked_next);
+				if (locked != locked_next) {
+					EMSG("Inconsistent status OTP id %u",
+					     otp_id + j);
+					locked = true;
+					continue;
+				}
+			}
 
 			if (locked) {
 				DMSG("BSEC: OTP locked");
