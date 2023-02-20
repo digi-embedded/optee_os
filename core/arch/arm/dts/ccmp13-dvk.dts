@@ -15,7 +15,7 @@
 #include <dt-bindings/soc/stm32mp-tzc400-macro.h>
 #include <dt-bindings/soc/stm32mp13-etzpc.h>
 #include <dt-bindings/soc/stm32mp13-tzc400.h>
-#include "stm32mp135.dtsi"
+#include "stm32mp133.dtsi"
 #include "stm32mp13xf.dtsi"
 #include "stm32mp13-pinctrl.dtsi"
 
@@ -94,7 +94,6 @@
 		DECPROT(STM32MP1_ETZPC_IWDG1_ID, DECPROT_S_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_LPTIM2_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_LPTIM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)
-		DECPROT(STM32MP1_ETZPC_LTDC_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_MCE_ID, DECPROT_S_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_OTG_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_PKA_ID, DECPROT_S_RW, DECPROT_UNLOCK)
@@ -155,6 +154,7 @@
 		reg = <0x33>;
 		status = "okay";
 		st,wakeup-pin-number = <1>;
+		st,notif-it-id = <0>;
 
 		regulators {
 			compatible = "st,stpmic1-regulators";
@@ -337,12 +337,6 @@
 	};
 };
 
-&ltdc {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ltdc_pins_a>;
-	status = "okay";
-};
-
 &oem_enc_key {
 	st,non-secure-otp-provisioning;
 };
@@ -394,7 +388,6 @@
 		CLK_MCO1_HSE
 		CLK_MCO2_DISABLED
 		CLK_CKPER_HSE
-		CLK_ETH1_PLL4P
 		CLK_ETH2_PLL4P
 		CLK_SDMMC1_PLL4P
 		CLK_SDMMC2_PLL4P
@@ -414,6 +407,7 @@
 		CLK_DCMIPP_PLL2Q
 		CLK_LPTIM3_PCLK3
 		CLK_RNG1_PLL4R
+		CLK_SPI1_PLL3Q
 	>;
 
 	st,clkdiv = <

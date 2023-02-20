@@ -11,7 +11,6 @@ flavor_dts_file-157D_EV1 = stm32mp157d-ev1.dts
 flavor_dts_file-157F_DK2 = stm32mp157f-dk2.dts
 flavor_dts_file-157F_ED1 = stm32mp157f-ed1.dts
 flavor_dts_file-157F_EV1 = stm32mp157f-ev1.dts
-flavor_dts_file-135D_DK = stm32mp135d-dk.dts
 flavor_dts_file-135F_DK = stm32mp135f-dk.dts
 # Digi platforms
 flavor_dts_file-ccmp13-dvk = ccmp13-dvk.dts
@@ -23,7 +22,6 @@ flavorlist-512M = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_DK2) \
 		  $(flavor_dts_file-157D_DK1) \
 		  $(flavor_dts_file-157F_DK2) \
-		  $(flavor_dts_file-135D_DK) \
 		  $(flavor_dts_file-135F_DK) \
 		  $(flavor_dts_file-ccmp15-dvk)
 
@@ -50,8 +48,7 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157F_EV1) \
 		  $(flavor_dts_file-ccmp15-dvk)
 
-flavorlist-MP13 = $(flavor_dts_file-135D_DK) \
-		  $(flavor_dts_file-135F_DK) \
+flavorlist-MP13 = $(flavor_dts_file-135F_DK) \
 		  $(flavor_dts_file-ccmp13-dvk)
 
 ifneq ($(PLATFORM_FLAVOR),)
@@ -89,11 +86,13 @@ ifeq ($(CFG_STM32MP13),y)
 $(call force,CFG_CORE_ASYNC_NOTIF,y)
 $(call force,CFG_CORE_ASYNC_NOTIF_GIC_INTID,31)
 $(call force,CFG_BOOT_SECONDARY_REQUEST,n)
+$(call force,CFG_DRIVERS_ADC,y)
 $(call force,CFG_DRIVERS_CLK,y)
 $(call force,CFG_DRIVERS_CLK_FIXED,y)
 $(call force,CFG_RPROC_PTA,n)
 $(call force,CFG_REGULATOR_DRIVERS,y)
 $(call force,CFG_SECONDARY_INIT_CNTFRQ,n)
+$(call force,CFG_STM32_ADC,y)
 $(call force,CFG_STM32_CRYP,n)
 $(call force,CFG_STM32_EXTI,y)
 $(call force,CFG_STM32_GPIO,y)
@@ -107,6 +106,7 @@ $(call force,CFG_TZSRAM_START,0x2ffe0000)
 $(call force,CFG_TZSRAM_SIZE,0x0001f000)
 $(call force,CFG_WITH_NSEC_GPIOS,n)
 CFG_NUM_THREADS ?= 5
+CFG_STM32MP_OPP_COUNT ?= 2
 CFG_WITH_PAGER ?= n
 CFG_WITH_TUI ?= y
 else # Assume CFG_STM32MP15
@@ -119,6 +119,7 @@ $(call force,CFG_SCMI_MSG_PERF_DOMAIN,n)
 $(call force,CFG_SECONDARY_INIT_CNTFRQ,y)
 $(call force,CFG_STM32_PKA,n)
 $(call force,CFG_STM32_SAES,n)
+$(call force,CFG_STM32_HUK,y)
 $(call force,CFG_STM32_VREFBUF,n)
 $(call force,CFG_STM32MP13,n)
 $(call force,CFG_STM32MP15,y)
@@ -157,7 +158,7 @@ CFG_STM32MP1_SCMI_SHM_SIZE ?= 0x00001000
 CFG_TZDRAM_SIZE  ?= 0x01e00000
 CFG_SHMEM_SIZE   ?= 0x00200000
 CFG_DRAM_SIZE    ?= 0x40000000
-CFG_TZDRAM_START ?= ($(CFG_DRAM_BASE) + $(CFG_DRAM_SIZE) - $(CFG_TZDRAM_SIZE))
+CFG_TZDRAM_START ?= ($(CFG_DRAM_BASE) + CFG_DRAM_SIZE - $(CFG_TZDRAM_SIZE))
 CFG_SHMEM_START  ?= ($(CFG_TZDRAM_START) - $(CFG_SHMEM_SIZE))
 
 CFG_WITH_LPAE ?= y
@@ -192,6 +193,7 @@ $(call force,CFG_STM32_TAMP,n)
 $(call force,CFG_STM32_TIM,n)
 $(call force,CFG_STM32_VREFBUF,y)
 $(call force,CFG_STPMIC1,n)
+$(call force,CFG_STM32MP1_REGULATOR_IOD,n)
 $(call force,CFG_STM32MP1_SCMI_SIP,n)
 $(call force,CFG_SCMI_PTA,n)
 else
@@ -237,6 +239,7 @@ CFG_STM32_TIM ?= y
 CFG_STM32_UART ?= y
 CFG_STM32_VREFBUF ?= y
 CFG_STM32MP1_CPU_OPP ?= y
+CFG_STM32MP1_REGULATOR_IOD ?= y
 CFG_STPMIC1 ?= y
 CFG_SYSCFG ?= y
 CFG_TZC400 ?= y
@@ -343,3 +346,9 @@ CFG_STM32_EARLY_CONSOLE_UART ?= 0
 
 # Generate the STM32 files
 CFG_STM32MP15x_STM32IMAGE ?= n
+
+# Default use a software HUK and not the unique key read from OTP
+# Not suitable for production
+ifeq ($(CFG_STM32_HUK),y)
+CFG_OTP_HW_TESTKEY ?= y
+endif

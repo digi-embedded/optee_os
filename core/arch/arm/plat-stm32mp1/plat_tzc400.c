@@ -71,6 +71,7 @@ static enum itr_return tzc_it_handler(struct itr_handler *handler __unused)
 {
 	EMSG("TZC permission failure");
 	tzc_fail_dump();
+	stm32mp_dump_core_registers(true);
 
 	if (IS_ENABLED(CFG_STM32MP_PANIC_ON_TZC_PERM_VIOLATION))
 		panic();
@@ -257,7 +258,7 @@ static void stm32mp_tzc_cfg_boot_region(struct tzc_device *tzc_dev)
 			.sec_attr = TZC_REGION_S_RDWR,
 			.ns_device_access = 0,
 		},
-#if CFG_CORE_RESERVED_SHM
+#ifdef CFG_CORE_RESERVED_SHM
 		{
 			.base = CFG_SHMEM_START,
 			.top = CFG_SHMEM_START + CFG_SHMEM_SIZE - 1,
@@ -270,8 +271,10 @@ static void stm32mp_tzc_cfg_boot_region(struct tzc_device *tzc_dev)
 
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_TZDRAM_START));
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_TZDRAM_SIZE));
+#ifdef CFG_CORE_RESERVED_SHM
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_SHMEM_START));
 	COMPILE_TIME_ASSERT(IS_PAGE_ALIGNED(CFG_SHMEM_SIZE));
+#endif
 
 	stm32mp_tzc_region0(true);
 
@@ -501,7 +504,7 @@ static TEE_Result stm32mp1_tzc_probe(const void *fdt, int node,
 		panic();
 
 	itr_enable(tzc_dev->pdata.irq);
-	tzc_set_action(TZC_ACTION_ERR);
+	tzc_set_action(TZC_ACTION_INT);
 
 	register_pm_core_service_cb(stm32mp1_tzc_pm, tzc_dev,
 				    "stm32mp1-tzc400");

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0+ or BSD-3-Clause */
 /*
- * Copyright (C) STMicroelectronics 2020 - All Rights Reserved
- * Author: Gabriel Fernandez <gabriel.fernandez@st.com> for STMicroelectronics.
+ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
+ * Author: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
  */
 
 #ifndef _DT_BINDINGS_STM32MP13_CLKS_H_
@@ -47,8 +47,6 @@
 #define PCLK4		29
 #define PCLK5		30
 #define PCLK6		31
-
-
 
 /* BASE TIMER */
 #define CK_TIMG1	32
@@ -222,9 +220,9 @@
 #define CK_SCMI_PCLK4		21
 #define CK_SCMI_PCLK5		22
 #define CK_SCMI_PCLK6		23
-#define CK_SCMI_CKTIMG1	24
-#define CK_SCMI_CKTIMG2	25
-#define CK_SCMI_CKTIMG3	26
+#define CK_SCMI_CKTIMG1		24
+#define CK_SCMI_CKTIMG2		25
+#define CK_SCMI_CKTIMG3		26
 #define CK_SCMI_RTC		27
 #define CK_SCMI_RTCAPB		28
 #define CK_SCMI_BSEC		29

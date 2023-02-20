@@ -12,6 +12,7 @@
 #include <kernel/boot.h>
 #include <kernel/delay.h>
 #include <kernel/dt.h>
+#include <kernel/dt_driver.h>
 #include <kernel/panic.h>
 #include <kernel/thread.h>
 #include <libfdt.h>
@@ -22,14 +23,6 @@
 
 #define PWR_CR3_VBE		BIT(8)
 #define PWR_CR3_VBRS		BIT(9)
-
-/* STM32MP13x VDDSD1/2 controls */
-#define PWR_CR3_VDDSD1_EN	BIT(13)
-#define PWR_CR3_VDDSD1_RDY	BIT(14)
-#define PWR_CR3_VDDSD2_EN	BIT(15)
-#define PWR_CR3_VDDSD2_RDY	BIT(16)
-#define PWR_CR3_VDDSD1_VALID	BIT(22)
-#define PWR_CR3_VDDSD2_VALID	BIT(23)
 
 #define PWR_CR3_USB33_EN	BIT(24)
 #define PWR_CR3_USB33_RDY	BIT(26)
@@ -142,13 +135,13 @@ static TEE_Result pwr_list_voltages(const struct regul_desc *desc,
 	return TEE_SUCCESS;
 }
 
-static void pwr_regul_lock(const struct regul_desc *desc __unused)
+void stm32mp1_pwr_regul_lock(const struct regul_desc *desc __unused)
 {
 	if (thread_get_id_may_fail() != THREAD_ID_INVALID)
 		mutex_lock(&pwr_regul_mu);
 }
 
-static void pwr_regul_unlock(const struct regul_desc *desc __unused)
+void stm32mp1_pwr_regul_unlock(const struct regul_desc *desc __unused)
 {
 	if (thread_get_id_may_fail() != THREAD_ID_INVALID)
 		mutex_unlock(&pwr_regul_mu);
@@ -159,8 +152,8 @@ struct regul_ops pwr_ops = {
 	.get_state = pwr_get_state,
 	.get_voltage = pwr_get_voltage,
 	.list_voltages = pwr_list_voltages,
-	.lock = pwr_regul_lock,
-	.unlock = pwr_regul_unlock,
+	.lock = stm32mp1_pwr_regul_lock,
+	.unlock = stm32mp1_pwr_regul_unlock,
 };
 
 #define DEFINE_REG(id, name, supply) { \
@@ -211,23 +204,22 @@ static TEE_Result stm32mp1_pwr_regu_probe(const void *fdt, int node,
 
 		for (i = 0; i < ARRAY_SIZE(stm32mp1_pwr_regs); i++) {
 			desc = &stm32mp1_pwr_regs[i];
-			if (!strcmp(stm32mp1_pwr_regs[i].node_name, reg_name))
-				break;
-		}
-		assert(i != ARRAY_SIZE(stm32mp1_pwr_regs));
-
-		res = regulator_register(desc, subnode);
-		if (res) {
-			EMSG("Can't register %s: %#"PRIx32, reg_name, res);
-			panic();
+			if (!strcmp(stm32mp1_pwr_regs[i].node_name, reg_name)) {
+				res = regulator_register(desc, subnode);
+				if (res) {
+					EMSG("Can't register %s: %#"PRIx32,
+					     reg_name, res);
+					panic();
+				}
+			}
 		}
 	}
 
 	if (IS_ENABLED(CFG_STM32MP13)) {
-		enable_sd_io(PWR_CR3_VDDSD1_EN, PWR_CR3_VDDSD1_RDY,
-			     PWR_CR3_VDDSD1_VALID);
-		enable_sd_io(PWR_CR3_VDDSD2_EN, PWR_CR3_VDDSD2_RDY,
-			     PWR_CR3_VDDSD2_VALID);
+		enable_sd_io(PWR_CR3_VDDSD1EN, PWR_CR3_VDDSD1RDY,
+			     PWR_CR3_VDDSD1VALID);
+		enable_sd_io(PWR_CR3_VDDSD2EN, PWR_CR3_VDDSD2RDY,
+			     PWR_CR3_VDDSD2VALID);
 	}
 
 	if (fdt_getprop(fdt, node, "st,enable-vbat-charge", NULL)) {
@@ -237,6 +229,15 @@ static TEE_Result stm32mp1_pwr_regu_probe(const void *fdt, int node,
 
 		if (fdt_getprop(fdt, node, "st,vbat-charge-1K5", NULL))
 			io_setbits32(cr3, PWR_CR3_VBRS);
+	}
+
+	fdt_for_each_subnode(subnode, fdt, node) {
+		res = dt_driver_maybe_add_probe_node(fdt, subnode);
+		if (res) {
+			EMSG("Failed on node %s with %#"PRIx32,
+			     fdt_get_name(fdt, subnode, NULL), res);
+			panic();
+		}
 	}
 
 	return TEE_SUCCESS;

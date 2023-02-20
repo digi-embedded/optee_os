@@ -45,42 +45,47 @@ struct stm32_pwr_data {
 	struct stm32_pinctrl_list *pinctrl_list;
 	struct itr_handler *hdl[PWR_NB_WAKEUPPINS];
 	struct itr_handler *gic_hdl;
+	bool threaded[PWR_NB_WAKEUPPINS];
+	bool pending[PWR_NB_WAKEUPPINS];
 };
 
 static struct stm32_pwr_data *pwr_data;
 
+static enum itr_return pwr_it_call_handler(struct stm32_pwr_data *priv,
+					   uint32_t pin)
+{
+	uint32_t wkupenr = io_read32(priv->base + MPUWKUPENR);
+
+	if (wkupenr & BIT(pin)) {
+		VERBOSE_PWR("call wkup handler irq:%d\n", pin);
+
+		if (priv->hdl[pin]) {
+			struct itr_handler *h = priv->hdl[pin];
+
+			if (h->handler(h) != ITRR_HANDLED) {
+				EMSG("Disabling unhandled interrupt %u", pin);
+				stm32mp1_pwr_itr_disable(pin);
+			}
+		}
+	}
+
+	return ITRR_HANDLED;
+}
+
 static enum itr_return pwr_it_threaded_handler(void)
 {
 	struct stm32_pwr_data *priv = pwr_data;
-	uint32_t wkupfr = 0;
-	uint32_t wkupenr = 0;
 	uint32_t i = 0;
 
 	VERBOSE_PWR("");
 
-	wkupfr = io_read32(priv->base + WKUPFR);
-	wkupenr = io_read32(priv->base + MPUWKUPENR);
-
 	for (i = 0; i < PWR_NB_WAKEUPPINS; i++) {
-		if ((wkupfr & BIT(i)) && (wkupenr & BIT(i))) {
-			VERBOSE_PWR("handle wkup irq:%d\n", i);
-
-			if (priv->hdl[i]) {
-				struct itr_handler *h = priv->hdl[i];
-
-				if (h->handler(h) != ITRR_HANDLED) {
-					EMSG("Disabling unhandled interrupt %u",
-					     i);
-					stm32mp1_pwr_itr_disable(i);
-				}
-			}
-
-			/* Ack IRQ */
-			io_setbits32(priv->base + WKUPCR, BIT(i));
+		if (priv->pending[i]) {
+			VERBOSE_PWR("handle pending wkup irq:%d\n", i);
+			priv->pending[i] = false;
+			pwr_it_call_handler(priv, i);
 		}
 	}
-
-	itr_enable(priv->gic_hdl->it);
 
 	return ITRR_HANDLED;
 }
@@ -109,15 +114,32 @@ struct notif_driver stm32_pwr_notif = {
 static enum itr_return pwr_it_handler(struct itr_handler *handler)
 {
 	struct stm32_pwr_data *priv = (struct stm32_pwr_data *)handler->data;
+	uint32_t wkupfr = 0;
+	uint32_t i = 0;
 
 	VERBOSE_PWR("");
 
 	itr_disable(priv->gic_hdl->it);
 
-	if (notif_async_is_started())
-		notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
-	else
-		return pwr_it_threaded_handler();
+	wkupfr = io_read32(priv->base + WKUPFR);
+
+	for (i = 0; i < PWR_NB_WAKEUPPINS; i++) {
+		if (wkupfr & BIT(i)) {
+			VERBOSE_PWR("handle wkup irq:%d\n", i);
+
+			/* Ack IRQ */
+			io_setbits32(priv->base + WKUPCR, BIT(i));
+
+			if (priv->threaded[i] && notif_async_is_started()) {
+				priv->pending[i] = true;
+				notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
+			} else {
+				pwr_it_call_handler(priv, i);
+			}
+		}
+	}
+
+	itr_enable(priv->gic_hdl->it);
 
 	return ITRR_HANDLED;
 }
@@ -207,6 +229,7 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	struct stm32_pwr_data *priv = pwr_data;
 	int it = hdl->it;
 	struct stm32_pinctrl_list pinctrl_list = { };
+	struct stm32_pinctrl pin = { };
 	struct stm32_pinctrl *pinctrl = NULL;
 	unsigned int i = 0;
 
@@ -223,6 +246,9 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 
 	priv->hdl[it] = hdl;
 
+	if (hdl->flags & PWR_WKUP_FLAG_THREADED)
+		priv->threaded[it] = true;
+
 	STAILQ_FOREACH(pinctrl, priv->pinctrl_list, link) {
 		if ((unsigned int)it == i)
 			break;
@@ -231,8 +257,10 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	}
 	assert(pinctrl);
 
+	memcpy(&pin, pinctrl, sizeof(*pinctrl));
+
 	STAILQ_INIT(&pinctrl_list);
-	STAILQ_INSERT_HEAD(&pinctrl_list, pinctrl, link);
+	STAILQ_INSERT_HEAD(&pinctrl_list, &pin, link);
 
 	stm32mp1_pwr_itr_disable(it);
 
@@ -255,7 +283,11 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 		panic();
 	}
 
-	stm32_pwr_irq_set_trig(it, hdl->flags);
+	stm32_pwr_irq_set_trig(it, hdl->flags &
+			       (PWR_WKUP_FLAG_FALLING | PWR_WKUP_FLAG_RISING));
+
+	if (IS_ENABLED(CFG_STM32_EXTI))
+		stm32_exti_set_tz(PWR_EXTI_WKUP1 + it);
 
 	return TEE_SUCCESS;
 }
@@ -266,8 +298,6 @@ stm32mp1_pwr_itr_alloc_add(size_t it, itr_handler_t handler, uint32_t flags,
 {
 	TEE_Result res = TEE_SUCCESS;
 	struct itr_handler *hdl = NULL;
-
-	assert(!(flags & ITRF_SHARED));
 
 	hdl = calloc(1, sizeof(*hdl));
 	if (!hdl)
@@ -350,9 +380,14 @@ DEFINE_DT_DRIVER(stm32mp1_pwr_irq_dt_driver) = {
 	.probe = &stm32mp1_pwr_irq_probe,
 };
 
-static enum itr_return pwr_it_user_handler(struct itr_handler *handler __unused)
+static enum itr_return pwr_it_user_handler(struct itr_handler *handler)
 {
+	uint32_t *it_id = handler->data;
+
 	VERBOSE_PWR("pwr irq tester handler");
+
+	if (it_id)
+		notif_send_it(*it_id);
 
 	return ITRR_HANDLED;
 }
@@ -365,6 +400,7 @@ stm32mp1_pwr_irq_user_dt_probe(const void *fdt, int node,
 	struct itr_handler *hdl = NULL;
 	const fdt32_t *cuint = NULL;
 	size_t it = 0;
+	uint32_t *it_id = NULL;
 
 	VERBOSE_PWR("Init pwr irq user");
 
@@ -374,8 +410,17 @@ stm32mp1_pwr_irq_user_dt_probe(const void *fdt, int node,
 
 	it = fdt32_to_cpu(*cuint) - 1U;
 
+	cuint = fdt_getprop(fdt, node, "st,notif-it-id", NULL);
+	if (cuint) {
+		it_id = calloc(1, sizeof(it_id));
+		if (!it_id)
+			return TEE_ERROR_OUT_OF_MEMORY;
+
+		*it_id = fdt32_to_cpu(*cuint);
+	}
+
 	res = stm32mp1_pwr_itr_alloc_add(it, pwr_it_user_handler,
-					 PWR_WKUP_FLAG_FALLING, NULL, &hdl);
+					 PWR_WKUP_FLAG_FALLING, it_id, &hdl);
 	if (res != TEE_SUCCESS)
 		return res;
 

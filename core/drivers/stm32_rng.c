@@ -47,7 +47,7 @@
 #define RNG_NIST_CONFIG_B	U(0x1801000)
 #define RNG_NIST_CONFIG_MASK	GENMASK_32(25, 8)
 
-#define RNG_MAX_CLOCK_FREQ	U(750000)
+#define RNG_MAX_NOISE_CLK_FREQ	U(3000000)
 
 struct stm32_rng_driver_data {
 	bool has_cond_reset;
@@ -64,6 +64,7 @@ struct stm32_rng_device {
 
 /* Expect a single RNG device */
 static struct stm32_rng_device stm32_rng;
+DECLARE_KEEP_PAGER(stm32_rng);
 
 static vaddr_t get_base(struct stm32_rng_device *dev)
 {
@@ -162,7 +163,7 @@ static uint32_t stm32_rng_clock_freq_restrain(struct stm32_rng_device *dev)
 	 * No need to handle the case when clock-div > 0xF as it is physically
 	 * impossible
 	 */
-	while ((clock_rate >> clock_div) > RNG_MAX_CLOCK_FREQ)
+	while ((clock_rate >> clock_div) > RNG_MAX_NOISE_CLK_FREQ)
 		clock_div++;
 
 	DMSG("RNG clk rate : %lu", clk_get_rate(dev->pdata.clock) >> clock_div);
@@ -307,7 +308,23 @@ uint8_t hw_get_random_byte(void)
 
 static TEE_Result stm32_rng_pm_resume(struct stm32_rng_device *dev)
 {
-	io_write32(get_base(dev) + RNG_CR, RNG_CR_RNGEN | dev->pm_cr);
+	/* Clean error indications */
+	io_write32(get_base(dev) + RNG_SR, 0);
+
+	if (dev->ddata->has_cond_reset) {
+		/*
+		 * Correct configuration in bits [29:4] must be set in the same
+		 * access that set RNG_CR_CONDRST bit. Else config setting is
+		 * not taken into account. CONFIGLOCK bit must also be unset but
+		 * it is not handled at the moment.
+		 */
+		io_write32(get_base(dev) + RNG_CR, dev->pm_cr | RNG_CR_CONDRST);
+
+		io_clrsetbits32(get_base(dev) + RNG_CR, RNG_CR_CONDRST,
+				RNG_CR_RNGEN);
+	} else {
+		io_write32(get_base(dev) + RNG_CR, RNG_CR_RNGEN | dev->pm_cr);
+	}
 
 	return TEE_SUCCESS;
 }
@@ -452,6 +469,7 @@ static const struct stm32_rng_driver_data mp13_data[] = {
 static const struct stm32_rng_driver_data mp15_data[] = {
 	{ .has_cond_reset = false },
 };
+DECLARE_KEEP_PAGER(mp15_data);
 
 static const struct dt_device_match rng_match_table[] = {
 	{ .compatible = "st,stm32mp13-rng", .compat_data = &mp13_data },

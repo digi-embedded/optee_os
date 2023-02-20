@@ -146,16 +146,19 @@ static TEE_Result nvmem_write(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
 		if (!(status & OTP_UPDATE_REQ))
 			continue;
 
-		/* Write OTP */
-		params_pta[0].value.a = otp_id * sizeof(uint32_t);
-		params_pta[0].value.b = FUSE_ACCESS;
-		params_pta[1].memref.buffer = &value;
-		params_pta[1].memref.size = sizeof(uint32_t);
-		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
-					  PTA_BSEC_WRITE_MEM,
-					  pt, params_pta, NULL);
-		if (res)
-			return res;
+		/* Write OTP if value not NULL*/
+		if (value) {
+			params_pta[0].value.a = otp_id * sizeof(uint32_t);
+			params_pta[0].value.b = FUSE_ACCESS;
+			params_pta[1].memref.buffer = &value;
+			params_pta[1].memref.size = sizeof(uint32_t);
+			res = TEE_InvokeTACommand(pta_session,
+						  TEE_TIMEOUT_INFINITE,
+						  PTA_BSEC_WRITE_MEM,
+						  pt, params_pta, NULL);
+			if (res)
+				return res;
+		}
 
 		/* Only set the permanent lock, other are not relevant here */
 		if (status & LOCK_PERM) {

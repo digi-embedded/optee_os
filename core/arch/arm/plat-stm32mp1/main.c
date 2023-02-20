@@ -48,6 +48,7 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB4_BASE, APB4_SIZE);
 register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB5_BASE, APB5_SIZE);
 #ifdef CFG_STM32MP13
 register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB6_BASE, APB6_SIZE);
+register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB2_BASE, AHB2_SIZE);
 #endif
 register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB4_BASE, AHB4_SIZE);
 register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB5_BASE, AHB5_SIZE);
@@ -545,7 +546,7 @@ unsigned long stm32_get_iwdg_otp_config(vaddr_t pbase)
 	return iwdg_cfg;
 }
 
-#ifdef CFG_TEE_CORE_DEBUG
+#if TRACE_LEVEL >= TRACE_DEBUG
 static const char *const dump_table[] = {
 	"usr_sp",
 	"usr_lr",
@@ -569,14 +570,14 @@ static const char *const dump_table[] = {
 #endif
 };
 
-void stm32mp_dump_core_registers(bool force_display)
+void stm32mp_dump_core_registers(bool panicking)
 {
 	static bool display;
 	size_t i = 0U;
 	uint32_t __maybe_unused *reg = NULL;
 	struct sm_nsec_ctx *sm_nsec_ctx = sm_get_nsec_ctx();
 
-	if (force_display)
+	if (panicking)
 		display = true;
 
 	if (!display)
@@ -587,6 +588,9 @@ void stm32mp_dump_core_registers(bool force_display)
 	reg = (uint32_t *)&sm_nsec_ctx->ub_regs.usr_sp;
 	for (i = 0U; i < ARRAY_SIZE(dump_table); i++)
 		MSG("%10s : 0x%08x\n", dump_table[i], reg[i]);
+
+	MSG("%10s : %#08x", "mon_lr", sm_nsec_ctx->mon_lr);
+	MSG("%10s : %#08x", "mon_spsr", sm_nsec_ctx->mon_spsr);
 }
 DECLARE_KEEP_PAGER(stm32mp_dump_core_registers);
 #endif

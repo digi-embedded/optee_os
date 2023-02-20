@@ -358,6 +358,7 @@ static void entry_open_session(struct optee_msg_arg *arg, uint32_t num_params)
 	TEE_UUID uuid;
 	struct tee_ta_param param;
 	size_t num_meta;
+	size_t num_sess_params = 0;
 	uint64_t saved_attr[TEE_NUM_PARAMS] = { 0 };
 
 	res = get_open_session_meta(num_params, arg->params, &num_meta, &uuid,
@@ -365,7 +366,13 @@ static void entry_open_session(struct optee_msg_arg *arg, uint32_t num_params)
 	if (res != TEE_SUCCESS)
 		goto out;
 
-	res = copy_in_params(arg->params + num_meta, num_params - num_meta,
+	if (SUB_OVERFLOW(num_params, num_meta, &num_sess_params) ||
+	    num_sess_params > TEE_NUM_PARAMS) {
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto out;
+	}
+
+	res = copy_in_params(arg->params + num_meta, num_sess_params,
 			     &param, saved_attr);
 	if (res != TEE_SUCCESS)
 		goto cleanup_shm_refs;
@@ -374,7 +381,7 @@ static void entry_open_session(struct optee_msg_arg *arg, uint32_t num_params)
 				  &clnt_id, TEE_TIMEOUT_INFINITE, &param);
 	if (res != TEE_SUCCESS)
 		s = NULL;
-	copy_out_param(&param, num_params - num_meta, arg->params + num_meta,
+	copy_out_param(&param, num_sess_params, arg->params + num_meta,
 		       saved_attr);
 
 	/*
@@ -386,7 +393,7 @@ static void entry_open_session(struct optee_msg_arg *arg, uint32_t num_params)
 				     &session_pnum);
 
 cleanup_shm_refs:
-	cleanup_shm_refs(saved_attr, &param, num_params - num_meta);
+	cleanup_shm_refs(saved_attr, &param, num_sess_params);
 
 out:
 	if (s)
@@ -427,14 +434,19 @@ static void entry_invoke_command(struct optee_msg_arg *arg, uint32_t num_params)
 
 	bm_timestamp();
 
+	if (num_params > TEE_NUM_PARAMS) {
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto out;
+	}
+
 	res = copy_in_params(arg->params, num_params, &param, saved_attr);
 	if (res != TEE_SUCCESS)
-		goto out;
+		goto cleanup_shm_refs;
 
 	s = tee_ta_get_session(arg->session, true, &tee_open_sessions);
 	if (!s) {
 		res = TEE_ERROR_BAD_PARAMETERS;
-		goto out;
+		goto cleanup_shm_refs;
 	}
 
 	res = tee_ta_invoke_command(&err_orig, s, NSAPP_IDENTITY,
@@ -446,9 +458,10 @@ static void entry_invoke_command(struct optee_msg_arg *arg, uint32_t num_params)
 
 	copy_out_param(&param, num_params, arg->params, saved_attr);
 
-out:
+cleanup_shm_refs:
 	cleanup_shm_refs(saved_attr, &param, num_params);
 
+out:
 	arg->ret = res;
 	arg->ret_origin = err_orig;
 }

@@ -6,6 +6,7 @@
 #ifndef __STM32MP1_PWR_H
 #define __STM32MP1_PWR_H
 
+#include <drivers/regulator.h>
 #include <kernel/interrupt.h>
 #include <tee_api_types.h>
 #include <types_ext.h>
@@ -38,6 +39,12 @@
 #define PWR_CR3_DDRSREN		BIT(10)
 #define PWR_CR3_DDRSRDIS	BIT(11)
 #define PWR_CR3_DDRRETEN	BIT(12)
+#define PWR_CR3_VDDSD1EN	BIT(13)
+#define PWR_CR3_VDDSD1RDY	BIT(14)
+#define PWR_CR3_VDDSD2EN	BIT(15)
+#define PWR_CR3_VDDSD2RDY	BIT(16)
+#define PWR_CR3_VDDSD1VALID	BIT(22)
+#define PWR_CR3_VDDSD2VALID	BIT(23)
 #define PWR_CR3_USB33DEN	BIT(24)
 #define PWR_CR3_REG18EN		BIT(28)
 #define PWR_CR3_REG11EN		BIT(30)
@@ -69,6 +76,9 @@ unsigned int stm32mp1_pwr_regulator_mv(enum pwr_regulator id);
 void stm32mp1_pwr_regulator_set_state(enum pwr_regulator id, bool enable);
 bool stm32mp1_pwr_regulator_is_enabled(enum pwr_regulator id);
 
+void stm32mp1_pwr_regul_lock(const struct regul_desc *desc __unused);
+void stm32mp1_pwr_regul_unlock(const struct regul_desc *desc __unused);
+
 /* wakeup-pins irq chip */
 enum pwr_wkup_pins {
 	PWR_WKUP_PIN1 = 0,
@@ -82,7 +92,8 @@ enum pwr_wkup_pins {
 
 enum pwr_wkup_flags {
 	PWR_WKUP_FLAG_RISING = 0,
-	PWR_WKUP_FLAG_FALLING,
+	PWR_WKUP_FLAG_FALLING = BIT(0),
+	PWR_WKUP_FLAG_THREADED = BIT(1),
 };
 
 TEE_Result
