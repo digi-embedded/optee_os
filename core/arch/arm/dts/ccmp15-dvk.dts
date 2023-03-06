@@ -104,10 +104,10 @@
 			buck3-supply = <&vin>;
 			buck4-supply = <&vin>;
 			ldo1-supply = <&v3v3>;
-			ldo2-supply = <&vin>;
+			ldo2-supply = <&v3v3>;
 			ldo3-supply = <&vdd_ddr>;
 			ldo4-supply = <&vin>;
-			ldo5-supply = <&vin>;
+			ldo5-supply = <&v3v3>;
 			ldo6-supply = <&v3v3>;
 			vref_ddr-supply = <&vin>;
 			boost-supply = <&vin>;
@@ -151,15 +151,15 @@
 				regulator-initial-mode = <0>;
 			};
 
-			v1v8_audio: ldo1 {
-				regulator-name = "v1v8_audio";
+			vdda: ldo1 {
+				regulator-name = "vdda";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
 				regulator-always-on;
 			};
 
-			v3v3_hdmi: ldo2 {
-				regulator-name = "v3v3_hdmi";
+			ldo2: ldo2 {
+				regulator-name = "ldo2";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-always-on;
@@ -176,15 +176,15 @@
 				regulator-name = "vdd_usb";
 			};
 
-			vdda: ldo5 {
-				regulator-name = "vdda";
+			vdd_sd: ldo5 {
+				regulator-name = "vdd_sd";
 				regulator-min-microvolt = <2900000>;
 				regulator-max-microvolt = <2900000>;
 				regulator-boot-on;
 			};
 
-			v1v2_hdmi: ldo6 {
-				regulator-name = "v1v2_hdmi";
+			ldo6: ldo6 {
+				regulator-name = "ldo6";
 				regulator-min-microvolt = <1200000>;
 				regulator-max-microvolt = <1200000>;
 				regulator-always-on;
@@ -351,7 +351,7 @@
 };
 
 /* Low-power states of regulators */
-&v1v2_hdmi {
+&ldo6 {
 	standby-ddr-sr {
 		regulator-off-in-suspend;
 	};
@@ -360,7 +360,7 @@
 	};
 };
 
-&v1v8_audio {
+&vdd_sd {
 	standby-ddr-sr {
 		regulator-off-in-suspend;
 	};
@@ -382,7 +382,7 @@
 	};
 };
 
-&v3v3_hdmi {
+&ldo2 {
 	standby-ddr-sr {
 		regulator-off-in-suspend;
 	};
