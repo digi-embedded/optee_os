@@ -609,6 +609,10 @@
 		voltd-name = "ldo6";
 		regulator-name = "ldo6";
 	};
+	scmi_vbus_otg: voltd-vbus_otg {
+		voltd-name = "vbus_otg";
+		regulator-name = "vbus_otg";
+	};
 	scmi_vbus_sw: voltd-vbus_sw {
 		voltd-name = "vbus_sw";
 		regulator-name = "vbus_sw";
