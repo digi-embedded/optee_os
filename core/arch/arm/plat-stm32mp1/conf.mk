@@ -213,6 +213,12 @@ ifeq ($(CFG_BSEC_PTA),y)
 $(call force,CFG_STM32_BSEC,y,Mandated by CFG_BSEC_PTA)
 endif
 
+# Enable Cryp TA to cipher data
+CFG_TA_STM32MP_CRYP ?= y
+ifeq ($(CFG_TA_STM32MP_CRYP),y)
+CFG_IN_TREE_EARLY_TAS += stm32mp_cryp/c2fad363-5d9f-4fc4-a417-555841e05745
+endif
+
 # Remoteproc early TA for coprocessor firmware management
 CFG_RPROC_PTA ?= n
 ifeq ($(CFG_RPROC_PTA),y)
