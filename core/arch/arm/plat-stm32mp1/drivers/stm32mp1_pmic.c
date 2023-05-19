@@ -425,6 +425,13 @@ static const struct regul_desc pmic_reguls[] = {
 };
 DECLARE_KEEP_PAGER(pmic_reguls);
 
+struct stm32_pmic_it_instance {
+	uint32_t *it_id_falling;
+	uint32_t *it_id_rising;
+};
+
+static struct stm32_pmic_it_instance stm32_pmic_it;
+
 static TEE_Result register_pmic_regulator(const char *regu_name, int node)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
@@ -512,7 +519,7 @@ static enum itr_return stpmic1_irq_handler(struct itr_handler *handler)
 {
 	uint8_t read_val = 0U;
 	unsigned int i = 0U;
-	uint32_t *it_id = handler->data;
+	struct stm32_pmic_it_instance *pmic_it = handler->data;
 
 	FMSG("Stpmic1 irq handler");
 
@@ -530,9 +537,15 @@ static enum itr_return stpmic1_irq_handler(struct itr_handler *handler)
 				panic();
 
 			/* forward falling interrupt to non-secure */
-			if (i == 0 && (read_val & BIT(IT_PONKEY_F)))
-				if (it_id)
-					notif_send_it(*it_id);
+			if (i == 0) {
+				if (read_val & BIT(IT_PONKEY_F)) {
+					if (pmic_it->it_id_falling)
+						notif_send_it(*pmic_it->it_id_falling);
+				} else if (read_val & BIT(IT_PONKEY_R)) {
+					if (pmic_it->it_id_rising)
+						notif_send_it(*pmic_it->it_id_rising);
+				}
+			}
 		}
 	}
 
@@ -594,7 +607,8 @@ static TEE_Result stm32_pmic_probe(const void *fdt, int node,
 	const fdt32_t *cuint = NULL;
 	struct itr_handler *hdl = NULL;
 	size_t it = 0;
-	uint32_t *it_id = NULL;
+	int num,len = 0;
+	uint32_t flags = PWR_WKUP_FLAG_THREADED;
 
 	res = i2c_dt_get_by_subnode(fdt, node, &i2c_pmic_handle);
 	if (res)
@@ -611,19 +625,36 @@ static TEE_Result stm32_pmic_probe(const void *fdt, int node,
 
 		it = fdt32_to_cpu(*cuint) - 1U;
 
-		cuint = fdt_getprop(fdt, node, "st,notif-it-id", NULL);
+		cuint = fdt_getprop(fdt, node, "st,notif-it-id", &len);
 		if (cuint) {
-			it_id = calloc(1, sizeof(it_id));
-			if (!it_id)
+			/* num of elements */
+			num = len / sizeof(*cuint);
+			if (num > 2) {
+				EMSG("st,notif-it-id allows 2 elements maximum");
+				return TEE_ERROR_BAD_PARAMETERS;
+			}
+
+			/* Falling IRQ */
+			stm32_pmic_it.it_id_falling = calloc(1, sizeof(stm32_pmic_it.it_id_falling));
+			if (!stm32_pmic_it.it_id_falling)
 				return TEE_ERROR_OUT_OF_MEMORY;
 
-			*it_id = fdt32_to_cpu(*cuint);
+			*stm32_pmic_it.it_id_falling = fdt32_to_cpu(cuint[0]);
+			flags |= PWR_WKUP_FLAG_FALLING;
+
+			if (num > 1) {
+				/* Rising IRQ */
+				stm32_pmic_it.it_id_rising = calloc(1, sizeof(stm32_pmic_it.it_id_rising));
+				if (!stm32_pmic_it.it_id_rising)
+					return TEE_ERROR_OUT_OF_MEMORY;
+
+				*stm32_pmic_it.it_id_rising = fdt32_to_cpu(cuint[1]);
+				flags |= PWR_WKUP_FLAG_RISING;
+			}
 		}
 
 		res = stm32mp1_pwr_itr_alloc_add(it, stpmic1_irq_handler,
-						 PWR_WKUP_FLAG_FALLING |
-						 PWR_WKUP_FLAG_THREADED,
-						 it_id, &hdl);
+						 flags, &stm32_pmic_it, &hdl);
 		if (res)
 			panic("pmic: Couldn't allocate itr");
 
