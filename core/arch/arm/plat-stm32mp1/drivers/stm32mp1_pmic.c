@@ -438,13 +438,6 @@ static const struct regul_desc pmic_reguls[] = {
 };
 DECLARE_KEEP_PAGER(pmic_reguls);
 
-struct stm32_pmic_it_instance {
-	uint32_t *it_id_falling;
-	uint32_t *it_id_rising;
-};
-
-static struct stm32_pmic_it_instance stm32_pmic_it;
-
 static TEE_Result register_pmic_regulator(const char *regu_name, int node)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
