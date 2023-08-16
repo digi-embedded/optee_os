@@ -35,6 +35,7 @@
 #define IWDG_EWCR_OFFSET	U(0x14)
 
 /* Registers values */
+#define IWDG_KR_WPROT_KEY	U(0x0000)
 #define IWDG_KR_ACCESS_KEY	U(0x5555)
 #define IWDG_KR_RELOAD_KEY	U(0xAAAA)
 #define IWDG_KR_START_KEY	U(0xCCCC)
@@ -45,6 +46,7 @@
 #define IWDG_RLR_RL_MASK	GENMASK_32(11, 0)
 
 #define IWDG_SR_EWU		BIT(3)
+#define IWDG_SR_EWIF		BIT(14)
 
 #define IWDG_EWCR_EWIE		BIT(15)
 #define IWDG_EWCR_EWIC		BIT(14)
@@ -88,10 +90,22 @@ static enum itr_return stm32_iwdg_it_handler(struct itr_handler *handler)
 
 	stm32mp_dump_core_registers(true);
 
-	iwdg_refresh(iwdg);
-
 	clk_enable(iwdg->pdata.clock);
 
+	/* Check for spurious interrupt */
+	if (!(io_read32(iwdg_base + IWDG_SR_OFFSET) & IWDG_SR_EWIF)) {
+		clk_disable(iwdg->pdata.clock);
+		return ITRR_NONE;
+	}
+
+	/*
+	 * Writing IWDG_EWCR_EWIT triggers a watchdog refresh.
+	 * To prevent the watchdog refresh, write-protect all the registers;
+	 * this makes read-only all IWDG_EWCR fields except IWDG_EWCR_EWIC.
+	 */
+	io_write32(iwdg_base + IWDG_KR_OFFSET, IWDG_KR_WPROT_KEY);
+
+	/* Disable early interrupt */
 	io_setbits32(iwdg_base + IWDG_EWCR_OFFSET, IWDG_EWCR_EWIC);
 
 	clk_disable(iwdg->pdata.clock);

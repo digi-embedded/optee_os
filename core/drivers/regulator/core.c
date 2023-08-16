@@ -575,6 +575,11 @@ static TEE_Result parse_properties(const void *fdt, struct rdev *rdev, int node)
 	}
 
 	rdev->reg_name = fdt_getprop(fdt, node, "regulator-name", NULL);
+	if (rdev->reg_name) {
+		rdev->reg_name = strdup(rdev->reg_name);
+		if (!rdev->reg_name)
+			panic();
+	}
 
 	return TEE_SUCCESS;
 }
