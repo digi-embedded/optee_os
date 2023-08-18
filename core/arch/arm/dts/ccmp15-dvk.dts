@@ -47,8 +47,8 @@
 		st,non-secure-otp;
 	};
 
-	huk_otp: huk_otp@f0 {
-		reg = <0xf0 0x10>;
+	huk_otp: huk_otp@f8 {
+		reg = <0xf8 0x10>;
 	};
 };
 
