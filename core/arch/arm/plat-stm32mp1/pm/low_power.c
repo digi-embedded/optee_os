@@ -292,13 +292,6 @@ void stm32_enter_cstop(uint32_t mode)
 		io_clrsetbits32(pwr_base + PWR_CR3_OFF, PWR_CR3_POPL_MASK,
 				20U << PWR_CR3_POPL_SHIFT);
 
-		/* Keep backup RAM content in standby */
-		io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_BREN);
-
-		// TODO add a timeout?
-		while (!(io_read32(pwr_base + PWR_CR2_OFF) & PWR_CR2_BRRDY))
-			;
-
 #ifndef CFG_STM32MP13
 		if (stm32mp1_is_retram_during_standby()) {
 			/* Keep retention in standby */
@@ -343,9 +336,6 @@ void stm32_exit_cstop(void)
 
 	dsb();
 	isb();
-
-	/* Disable retention and backup RAM content after stop */
-	io_clrbits32(stm32_pwr_base() + PWR_CR2_OFF, PWR_CR2_BREN);
 
 #ifndef CFG_STM32MP13
 	/* Disable retention and backup RAM content after stop */
@@ -524,6 +514,11 @@ static TEE_Result init_low_power(void)
 	io_setbits32(rcc_base + RCC_MP_SREQCLRR,
 		     RCC_MP_SREQSETR_STPREQ_P0 | RCC_MP_SREQSETR_STPREQ_P1);
 #endif
+
+	/* Keep backup RAM content in standby */
+	io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_BREN);
+	while (!(io_read32(pwr_base + PWR_CR2_OFF) & PWR_CR2_BRRDY))
+		;
 
 	return TEE_SUCCESS;
 }

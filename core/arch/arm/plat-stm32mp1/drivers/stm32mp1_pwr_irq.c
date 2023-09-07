@@ -13,6 +13,7 @@
 #include <kernel/dt.h>
 #include <kernel/notif.h>
 #include <kernel/panic.h>
+#include <kernel/spinlock.h>
 #include <libfdt.h>
 #include <platform_config.h>
 #include <stm32_util.h>
@@ -47,6 +48,7 @@ struct stm32_pwr_data {
 	struct itr_handler *gic_hdl;
 	bool threaded[PWR_NB_WAKEUPPINS];
 	bool pending[PWR_NB_WAKEUPPINS];
+	unsigned int spinlock;
 };
 
 static struct stm32_pwr_data *pwr_data;
@@ -148,6 +150,7 @@ static TEE_Result
 stm32_pwr_irq_set_pull_config(size_t it, enum wkup_pull_setting config)
 {
 	struct stm32_pwr_data *priv = pwr_data;
+	uint32_t exceptions = 0;
 
 	VERBOSE_PWR("irq:%zu pull config:0%#"PRIx32, it, config);
 
@@ -156,29 +159,59 @@ stm32_pwr_irq_set_pull_config(size_t it, enum wkup_pull_setting config)
 		return TEE_ERROR_GENERIC;
 	}
 
+	exceptions = cpu_spin_lock_xsave(&priv->spinlock);
+
 	io_mask32(priv->base + WKUPCR,
 		  (config & WKUP_PULL_MASK) << (WKUP_PULL_SHIFT + it * 2),
 		  (WKUP_PULL_MASK) << (WKUP_PULL_SHIFT + it * 2));
 
+	cpu_spin_unlock_xrestore(&priv->spinlock, exceptions);
+
 	return TEE_SUCCESS;
 }
 
-static TEE_Result
-stm32_pwr_irq_set_trig(size_t it, enum pwr_wkup_flags trig)
+static void stm32mp1_pwr_itr_enable_nolock(size_t it)
 {
 	struct stm32_pwr_data *priv = pwr_data;
+
+	VERBOSE_PWR("Pwr irq enable");
+
+	if (IS_ENABLED(CFG_STM32_EXTI))
+		stm32_exti_enable_wake(PWR_EXTI_WKUP1 + it);
+
+	io_setbits32(priv->base + MPUWKUPENR, BIT(it));
+}
+
+static void stm32mp1_pwr_itr_disable_nolock(size_t it)
+{
+	struct stm32_pwr_data *priv = pwr_data;
+
+	VERBOSE_PWR("Pwr irq disable");
+
+	io_clrbits32(priv->base + MPUWKUPENR, BIT(it));
+
+	if (IS_ENABLED(CFG_STM32_EXTI))
+		stm32_exti_disable_wake(PWR_EXTI_WKUP1 + it);
+}
+
+static TEE_Result stm32_pwr_irq_set_trig(size_t it, enum pwr_wkup_flags trig)
+{
+	struct stm32_pwr_data *priv = pwr_data;
+	uint32_t exceptions = 0;
 	uint32_t wkupcr = 0;
 	int en = 0;
 
 	VERBOSE_PWR("irq:%zu trig:%#"PRIx32, it, trig);
 
+	exceptions = cpu_spin_lock_xsave(&priv->spinlock);
+
 	en = io_read32(priv->base + MPUWKUPENR) & BIT(it);
 	/*
 	 * Reference manual request to disable the wakeup pin while
-	 * changing the edge detection setting
+	 * changing the edge detection setting.
 	 */
 	if (en)
-		stm32mp1_pwr_itr_disable(it);
+		stm32mp1_pwr_itr_disable_nolock(it);
 
 	wkupcr = io_read32(priv->base + WKUPCR);
 	switch (trig) {
@@ -195,7 +228,9 @@ stm32_pwr_irq_set_trig(size_t it, enum pwr_wkup_flags trig)
 	io_write32(priv->base + WKUPCR, wkupcr);
 
 	if (en)
-		stm32mp1_pwr_itr_enable(it);
+		stm32mp1_pwr_itr_enable_nolock(it);
+
+	cpu_spin_unlock_xrestore(&priv->spinlock, exceptions);
 
 	return TEE_SUCCESS;
 }
@@ -203,25 +238,21 @@ stm32_pwr_irq_set_trig(size_t it, enum pwr_wkup_flags trig)
 void stm32mp1_pwr_itr_enable(size_t it)
 {
 	struct stm32_pwr_data *priv = pwr_data;
+	uint32_t exceptions = 0;
 
-	VERBOSE_PWR("Pwr irq enable");
-
-	if (IS_ENABLED(CFG_STM32_EXTI))
-		stm32_exti_enable_wake(PWR_EXTI_WKUP1 + it);
-
-	io_setbits32(priv->base + MPUWKUPENR, BIT(it));
+	exceptions = cpu_spin_lock_xsave(&priv->spinlock);
+	stm32mp1_pwr_itr_enable_nolock(it);
+	cpu_spin_unlock_xrestore(&priv->spinlock, exceptions);
 }
 
 void stm32mp1_pwr_itr_disable(size_t it)
 {
 	struct stm32_pwr_data *priv = pwr_data;
+	uint32_t exceptions = 0;
 
-	VERBOSE_PWR("Pwr irq disable");
-
-	io_clrbits32(priv->base + MPUWKUPENR, BIT(it));
-
-	if (IS_ENABLED(CFG_STM32_EXTI))
-		stm32_exti_disable_wake(PWR_EXTI_WKUP1 + it);
+	exceptions = cpu_spin_lock_xsave(&priv->spinlock);
+	stm32mp1_pwr_itr_disable_nolock(it);
+	cpu_spin_unlock_xrestore(&priv->spinlock, exceptions);
 }
 
 static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
@@ -231,7 +262,9 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	struct stm32_pinctrl_list pinctrl_list = { };
 	struct stm32_pinctrl pin = { };
 	struct stm32_pinctrl *pinctrl = NULL;
+	uint32_t exceptions = 0;
 	unsigned int i = 0;
+	bool itr_free = false;
 
 	VERBOSE_PWR("Pwr IRQ add");
 
@@ -241,10 +274,15 @@ static TEE_Result stm32mp1_pwr_irt_add(struct itr_handler *hdl)
 	}
 
 	assert(it >= PWR_WKUP_PIN1 && it < PWR_NB_WAKEUPPINS);
-	/* check IRQ not already in use */
-	assert(!priv->hdl[it]);
 
-	priv->hdl[it] = hdl;
+	/* Use PWR lock to ensure consistent interrupt registering */
+	exceptions = cpu_spin_lock_xsave(&priv->spinlock);
+	itr_free = !priv->hdl[it];
+	if (itr_free)
+		priv->hdl[it] = hdl;
+	cpu_spin_unlock_xrestore(&priv->spinlock, exceptions);
+	if (!itr_free)
+		return TEE_ERROR_GENERIC;
 
 	if (hdl->flags & PWR_WKUP_FLAG_THREADED)
 		priv->threaded[it] = true;

@@ -165,9 +165,9 @@ static TEE_Result init_console_from_dt(void)
 	/* Replace early console with the new one */
 	console_flush();
 	console_data = *pd;
-	free(pd);
 	register_serial_console(&console_data.chip);
 	IMSG("DTB enables console (%ssecure)", pd->secure ? "" : "non-");
+	free(pd);
 
 	return TEE_SUCCESS;
 }
@@ -727,7 +727,7 @@ static TEE_Result stm32_configure_tamp(void)
 	return TEE_SUCCESS;
 }
 
-driver_init_late(stm32_configure_tamp);
+service_init(stm32_configure_tamp);
 #endif
 
 #ifdef CFG_STM32_HSE_MONITORING

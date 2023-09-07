@@ -213,6 +213,12 @@ ifeq ($(CFG_BSEC_PTA),y)
 $(call force,CFG_STM32_BSEC,y,Mandated by CFG_BSEC_PTA)
 endif
 
+# Enable Cryp TA to cipher data
+CFG_TA_STM32MP_CRYP ?= y
+ifeq ($(CFG_TA_STM32MP_CRYP),y)
+CFG_IN_TREE_EARLY_TAS += stm32mp_cryp/c2fad363-5d9f-4fc4-a417-555841e05745
+endif
+
 # Remoteproc early TA for coprocessor firmware management
 CFG_RPROC_PTA ?= n
 ifeq ($(CFG_RPROC_PTA),y)
@@ -322,10 +328,8 @@ CFG_ENABLE_EMBEDDED_TESTS ?= y
 CFG_WITH_STATS ?= y
 CFG_WERROR ?= y
 
-# Enable to allow debug
-ifeq ($(CFG_TEE_CORE_DEBUG),y)
+# Enable OTP update with BSEC driver
 CFG_STM32_BSEC_WRITE ?= y
-endif
 
 # Default disable some support for pager memory size constraint
 ifeq ($(CFG_WITH_PAGER),y)
