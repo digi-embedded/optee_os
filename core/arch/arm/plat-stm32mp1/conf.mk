@@ -14,7 +14,8 @@ flavor_dts_file-157F_EV1 = stm32mp157f-ev1.dts
 flavor_dts_file-135F_DK = stm32mp135f-dk.dts
 # Digi platforms
 flavor_dts_file-ccmp13-dvk = ccmp13-dvk.dts
-flavor_dts_file-ccmp15-dvk = ccmp15-dvk.dts
+flavor_dts_file-ccmp15-dvk-512MB = ccmp15-dvk-512MB.dts
+flavor_dts_file-ccmp15-dvk-1GB = ccmp15-dvk-1GB.dts
 
 flavorlist-256M = $(flavor_dts_file-ccmp13-dvk)
 
@@ -23,7 +24,7 @@ flavorlist-512M = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157D_DK1) \
 		  $(flavor_dts_file-157F_DK2) \
 		  $(flavor_dts_file-135F_DK) \
-		  $(flavor_dts_file-ccmp15-dvk)
+		  $(flavor_dts_file-ccmp15-dvk-512MB)
 
 flavorlist-1G = $(flavor_dts_file-157A_ED1) \
 		$(flavor_dts_file-157A_EV1) \
@@ -32,7 +33,8 @@ flavorlist-1G = $(flavor_dts_file-157A_ED1) \
 		$(flavor_dts_file-157C_ED1) \
 		$(flavor_dts_file-157C_EV1) \
 		$(flavor_dts_file-157F_ED1) \
-		$(flavor_dts_file-157F_EV1)
+		$(flavor_dts_file-157F_EV1) \
+		$(flavor_dts_file-ccmp15-dvk-1GB)
 
 flavorlist-MP15 = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_DK2) \
@@ -46,7 +48,8 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_EV1) \
 		  $(flavor_dts_file-157F_ED1) \
 		  $(flavor_dts_file-157F_EV1) \
-		  $(flavor_dts_file-ccmp15-dvk)
+		  $(flavor_dts_file-ccmp15-dvk-512MB) \
+		  $(flavor_dts_file-ccmp15-dvk-1GB)
 
 flavorlist-MP13 = $(flavor_dts_file-135F_DK) \
 		  $(flavor_dts_file-ccmp13-dvk)
