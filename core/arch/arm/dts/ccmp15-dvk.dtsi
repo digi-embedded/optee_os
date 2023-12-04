@@ -44,6 +44,7 @@
 
 	huk_otp: huk_otp@f8 {
 		reg = <0xf8 0x10>;
+		st,non-secure-otp-provisioning;
 	};
 };
 
