@@ -33,6 +33,7 @@
 #include <trace.h>
 #include <utee_defines.h>
 #include <util.h>
+#include <drivers/stpmic1.h>
 
 #include <platform_config.h>
 
@@ -759,7 +760,7 @@ static int add_optee_dt_node(struct dt_descriptor *dt)
 		if (ret < 0)
 			return -1;
 	}
-	
+
 	ret = fdt_setprop(dt->blob, offs, "u-boot,dm-pre-reloc",
 			  NULL, 0);
 	if (ret < 0)
@@ -1286,6 +1287,9 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
  */
 void __weak boot_init_primary_late(unsigned long fdt)
 {
+	void *_fdt;
+	unsigned char val;
+
 	init_external_dt(fdt);
 	tpm_map_log_area(get_external_dt());
 	discover_nsec_memory();
@@ -1311,6 +1315,27 @@ void __weak boot_init_primary_late(unsigned long fdt)
 	} else {
 		init_tee_runtime();
 	}
+
+	/*
+	 * Disable overcurrent protection on Buck3 for CCMP13-DVK.
+	 * On this board, Buck3 regulator powers all the 3V3 external
+	 * circuitry, which under very low temperatures (under -20C)
+	 * could cause a shutdown due to occasional overcurrent peaks.
+	 */
+	_fdt = get_dt();
+	if (!fdt_node_check_compatible(_fdt, 0, "digi,ccmp13-dvk")) {
+		/* Read BUCKS_OCPOFF_CR */
+		if (stpmic1_register_read(BUCK_ICC_TURNOFF_REG, &val))
+			EMSG("cannot read BUCK_ICC_TURNOFF_REG\n");
+
+		/* Disable OCP for BUCK3 */
+		val &= ~(1 << BUCK3_ICC_SHIFT);
+		if (stpmic1_register_write(BUCK_ICC_TURNOFF_REG, val))
+			EMSG("Cannot disable OCP for BUCK3\n");
+		else
+			DMSG("Disabled OCP for BUCK3\n");
+	}
+
 	call_finalcalls();
 	IMSG("Primary CPU switching to normal world boot");
 }
