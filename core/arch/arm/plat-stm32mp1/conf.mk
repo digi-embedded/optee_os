@@ -13,11 +13,11 @@ flavor_dts_file-157F_ED1 = stm32mp157f-ed1.dts
 flavor_dts_file-157F_EV1 = stm32mp157f-ev1.dts
 flavor_dts_file-135F_DK = stm32mp135f-dk.dts
 # Digi platforms
-flavor_dts_file-ccmp13-dvk = ccmp13-dvk.dts
+flavor_dts_file-ccmp13-dvk-256MB = ccmp13-dvk-256MB.dts
 flavor_dts_file-ccmp15-dvk-512MB = ccmp15-dvk-512MB.dts
 flavor_dts_file-ccmp15-dvk-1GB = ccmp15-dvk-1GB.dts
 
-flavorlist-256M = $(flavor_dts_file-ccmp13-dvk)
+flavorlist-256M = $(flavor_dts_file-ccmp13-dvk-256MB)
 
 flavorlist-512M = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-157C_DK2) \
@@ -52,7 +52,7 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DK1) \
 		  $(flavor_dts_file-ccmp15-dvk-1GB)
 
 flavorlist-MP13 = $(flavor_dts_file-135F_DK) \
-		  $(flavor_dts_file-ccmp13-dvk)
+		  $(flavor_dts_file-ccmp13-dvk-256MB)
 
 ifneq ($(PLATFORM_FLAVOR),)
 ifeq ($(flavor_dts_file-$(PLATFORM_FLAVOR)),)
