@@ -2,9 +2,14 @@ flavor_dts_file-215F_DK = stm32mp215f-dk.dts
 flavor_dts_file-235F_DK = stm32mp235f-dk.dts
 flavor_dts_file-257F_DK = stm32mp257f-dk.dts
 flavor_dts_file-257F_EV1 = stm32mp257f-ev1.dts
+# Digi platforms
+flavor_dts_file-ccmp25-dvk = ccmp25-dvk.dts
 
 flavorlist-MP25 = $(flavor_dts_file-257F_DK) \
-		  $(flavor_dts_file-257F_EV1)
+		  $(flavor_dts_file-257F_EV1) \
+		  $(flavor_dts_file-ccmp25-dvk)
+
+flavorlist-1G = $(flavor_dts_file-ccmp25-dvk)
 
 flavorlist-MP23 = $(flavor_dts_file-235F_DK)
 
