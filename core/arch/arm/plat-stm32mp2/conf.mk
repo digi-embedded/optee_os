@@ -1,12 +1,17 @@
 flavor_dts_file-257F_DK = stm32mp257f-dk.dts
 flavor_dts_file-257F_EV1 = stm32mp257f-ev1.dts
 flavor_dts_file-257F_EV1_REV_B = stm32mp257f-ev1-revB.dts
+# Digi platforms
+flavor_dts_file-ccmp25-dvk = ccmp25-dvk.dts
 
 flavorlist-MP25 = $(flavor_dts_file-257F_DK) \
 		  $(flavor_dts_file-257F_EV1) \
-		  $(flavor_dts_file-257F_EV1_REV_B)
+		  $(flavor_dts_file-257F_EV1_REV_B) \
+		  $(flavor_dts_file-ccmp25-dvk)
 
 flavorlist-MP25-REV-A-B = $(flavor_dts_file-257F_EV1_REV_B)
+
+flavorlist-1G = $(flavor_dts_file-ccmp25-dvk)
 
 # External device tree default path
 CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
