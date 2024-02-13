@@ -53,14 +53,6 @@
 	cpu-supply = <&vddcpu>;
 };
 
-&cpu0_opp_table {
-	opp-1500000000 {
-		opp-hz = /bits/ 64 <1500000000>;
-		opp-microvolt = <910000>;
-		opp-supported-hw = <0x1>;
-	};
-};
-
 &hash {
 	status = "okay";
 };

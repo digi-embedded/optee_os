@@ -33,8 +33,14 @@
 		opp-1200000000 {
 			opp-hz = /bits/ 64 <1200000000>;
 			opp-microvolt = <800000>;
-			opp-supported-hw = <0x1>;
+			opp-supported-hw = <0x3>;
 			st,opp-default;
+		};
+
+		opp-1500000000 {
+			opp-hz = /bits/ 64 <1500000000>;
+			opp-microvolt = <910000>;
+			opp-supported-hw = <0x2>;
 		};
 	};
 
