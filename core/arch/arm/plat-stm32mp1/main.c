@@ -627,6 +627,11 @@ early_init_late(init_debug);
 #ifdef CFG_STM32_TAMP
 
 #ifdef CFG_STM32MP13
+#define TAMPER_GPIO EXT_TAMP7
+#define TAMPER_INDEX 7
+#endif
+
+#ifdef CFG_STM32MP13
 static const char * const itamper_name[] = {
 	[INT_TAMP1] = "Backup domain voltage threshold monitoring",
 	[INT_TAMP2] = "Temperature monitoring",
@@ -708,14 +713,14 @@ static TEE_Result stm32_configure_tamp(void)
 #ifdef CFG_STM32MP13
 	/*
 	 * EXT_TAMPx needs to exist but also to be activated in DT. Here, we
-	 * check if the EXT_TAMP2 is defined in DT.
+	 * check if the EXT_TAMPx is defined in DT.
 	 */
-	res = stm32_tamp_activate_tamp(EXT_TAMP2, TAMP_ERASE,
-				       stm32mp1_etamper_action);
+	res = stm32_tamp_activate_tamp(TAMPER_GPIO, TAMP_ERASE,
+					stm32mp1_etamper_action);
 	if (res == TEE_ERROR_BAD_PARAMETERS)
-		DMSG("no EXT_TAMP2 on this platform");
+		DMSG("no EXT_TAMP%d on this platform", TAMPER_INDEX);
 	else if (res == TEE_ERROR_ITEM_NOT_FOUND)
-		DMSG("EXT_TAMP2 in pin was not found in device tree");
+		DMSG("EXT_TAMP%d in pin was not found in device tree", TAMPER_INDEX);
 #endif
 
 	if (stm32_tamp_set_config())

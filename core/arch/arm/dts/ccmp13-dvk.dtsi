@@ -597,6 +597,12 @@
 	status = "okay";
 	st,tamp_passive_nb_sample = <4>;
 	st,tamp_passive_sample_clk_div = <16384>;
+
+	tamp_passive@7 {
+		pinctrl-0 = <&ccmp13_tamp0_in7_pin_a>;
+		st,trig_on;
+		status = "disabled";
+	};
 };
 
 &timers12 {
@@ -622,6 +628,13 @@
 };
 
 &pinctrl {
+	ccmp13_tamp0_in7_pin_a: ccmp13_tamp0_in7_pin_0 {
+		pins {
+			pinmux = <STM32_PINMUX('B', 2, RSVD)>;
+			st,tamp_id = <7>;
+		};
+	};
+
 	uart5_pins_a: uart5-0 {
 		pins1 {
 			pinmux = <STM32_PINMUX('A', 0, AF8)>; /* UART5_TX */
