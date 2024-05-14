@@ -77,67 +77,62 @@
 
 		/* DDR reserved memory declaration */
 		tfm_code: tfm-code@80000000 {
-			reg = <0x0 0x80000000 0x0 0x100000>;
+			reg = <0x0 0x80000000 0x0 0x100000>; /* 1 MiB */
 			no-map;
 		};
 
 		cm33_cube_fw: cm33-cube-fw@80100000 {
-			reg = <0x0 0x80100000 0x0 0x800000>;
+			reg = <0x0 0x80100000 0x0 0x800000>; /* 8 MiB */
 			no-map;
 		};
 
 		tfm_data: tfm-data@80900000 {
-			reg = <0x0 0x80900000 0x0 0x100000>;
+			reg = <0x0 0x80900000 0x0 0x100000>; /* 1 MiB */
 			no-map;
 		};
 
 		cm33_cube_data: cm33-cube-data@80a00000 {
-			reg = <0x0 0x80a00000 0x0 0x800000>;
+			reg = <0x0 0x80a00000 0x0 0x800000>; /* 8 MiB */
 			no-map;
 		};
 
 		ipc_shmem: ipc-shmem@81200000 {
-			reg = <0x0 0x81200000 0x0 0x100000>;
+			reg = <0x0 0x81200000 0x0 0x100000>; /* 1 MiB */
 			no-map;
 		};
 
 		spare1: spare1@81300000 {
-			reg = <0x0 0x81300000 0x0 0xcc0000>;
+			reg = <0x0 0x81300000 0x0 0xcc0000>; /* 12,75 MiB */
 			no-map;
 		};
 
 		bl31_context: bl31-context@81fc0000 {
-			reg = <0x0 0x81fc0000 0x0 0x40000>;
+			reg = <0x0 0x81fc0000 0x0 0x40000>; /* 256 KiB */
 			no-map;
 		};
 
 		op_tee: op-tee@82000000 {
-			reg = <0x0 0x82000000 0x0 0x2000000>;
+			reg = <0x0 0x82000000 0x0 0x2000000>; /* 32 MiB */
 			no-map;
 		};
 
 		linuxkernel1: linuxkernel1@84000000 {
-			reg = <0x0 0x84000000 0x0 0x76800000>;
+			reg = <0x0 0x84000000 0x0 0x36800000>; /* 872 MiB */
 			no-map;
 		};
 
-		gpu_reserved: gpu-reserved@fa800000 {
-			reg = <0x0 0xfa800000 0x0 0x4000000>;
+		gpu_reserved: gpu-reserved@ba800000 {
+			reg = <0x0 0xba800000 0x0 0x4000000>; /* 64 MiB */
 			no-map;
 		};
 
-		ltdc_sec_layer: ltdc-sec-layer@fe800000 {
-			reg = <0x0 0xfe800000 0x0 0x800000>;
+		ltdc_sec_layer: ltdc-sec-layer@be800000 {
+			reg = <0x0 0xbe800000 0x0 0x800000>; /* 8 MiB */
 			no-map;
 		};
 
-		ltdc_sec_rotation: ltdc-sec-rotation@ff000000 {
-			reg = <0x0 0xff000000 0x0 0x1000000>;
-			no-map;
-		};
-
-		linuxkernel2: linuxkernel2@100000000 {
-			reg = <0x1 0x00000000 0x0 0x80000000>;
+		ltdc_sec_rotation: ltdc-sec-rotation@bf000000 {
+			reg = <0x0 0xbf000000 0x0 0x1000000>; /* 16 MiB */
 			no-map;
 		};
 	};
