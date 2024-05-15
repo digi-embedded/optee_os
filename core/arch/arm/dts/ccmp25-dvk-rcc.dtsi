@@ -66,7 +66,7 @@
 		FLEXGEN_CFG(22, XBAR_SRC_PLL4, 0, 11)	/* CK_KER_UART9 */
 		FLEXGEN_CFG(23, XBAR_SRC_PLL7, 0, 16)	/* CK_KER_SAI1 or CK_KER_MDF1 */
 		FLEXGEN_CFG(24, XBAR_SRC_PLL7, 0, 16)	/* CK_KER_SAI2 */
-		FLEXGEN_CFG(25, XBAR_SRC_PLL7, 0, 16)	/* CK_KER_SAI3,4 */
+		FLEXGEN_CFG(25, XBAR_SRC_PLL7, 0, 33)	/* CK_KER_SAI3,4 (49.152 MHz) */
 		FLEXGEN_CFG(26, XBAR_SRC_PLL4, 0, 11)	/* CK_KER_FDCAN */
 		FLEXGEN_CFG(27, XBAR_SRC_PLL8, 0, 3)	/* CK_KER_LTDC (148,5 MHz) */
 		FLEXGEN_CFG(28, XBAR_SRC_PLL8, 0, 21)	/* CK_KER_DSIPHY (27 MHz) */
@@ -195,13 +195,13 @@
 	};
 
 	pll7: st,pll@6 {
-		st,pll = <&pll7_cfg_835_51172Mhz>;
+		st,pll = <&pll7_cfg_1671_168MHz>;
 
-		pll7_cfg_835_51172Mhz: pll7-cfg-835-51172Mhz {
+		pll7_cfg_1671_168MHz: pll8_cfg_1671-168MHz{
 			/* cfg = <FBDIVx> <FREFDIVx> <POSTDIV1_x> <POSTDIV2_x> */
-			cfg = <167 4 1 2>;
+			cfg = <167 4 1 1>;
 			src = <MUX_CFG(MUX_MUXSEL3, MUXSEL_HSE)>;
-			frac = < 0x1A3337 >;
+			frac = <0x1DE69B>;
 		};
 	};
 
