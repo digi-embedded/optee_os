@@ -305,12 +305,17 @@
 					regulator-off-in-suspend;
 				};
 			};
-			vdd_sdcard: ldo7 {
-				regulator-name = "vdd_sdcard";
-				regulator-min-microvolt = <3300000>;
-				regulator-max-microvolt = <3300000>;
+			ldo6: ldo6 {
+				regulator-name = "ldo6";
+				regulator-min-microvolt = <1500000>;
+				regulator-max-microvolt = <1500000>;
 				regulator-over-current-protection;
-				st,regulator-bypass-microvolt = <3300000>;
+			};
+			ldo7: ldo7 {
+				regulator-name = "ldo7";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-reset;
 			};
@@ -319,8 +324,6 @@
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-over-current-protection;
-				st,regulator-bypass-microvolt = <3300000>;
-
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-reset;
 			};
@@ -494,9 +497,17 @@
 		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
 		voltd-supply = <&vdd3v3_usb>;
 	};
-	scmi_vdd_sdcard: voltd-vdd_sdcard {
+	scmi_ldo6: voltd-ldo6 {
+		reg = <VOLTD_SCMI_STPMIC2_LDO6>;
+		voltd-supply = <&ldo6>;
+	};
+	scmi_ldo7: voltd-ldo7 {
 		reg = <VOLTD_SCMI_STPMIC2_LDO7>;
-		voltd-supply = <&vdd_sdcard>;
+		voltd-supply = <&ldo7>;
+	};
+	scmi_vddio_sdcard: voltd-vddio_sdcard {
+		reg = <VOLTD_SCMI_STPMIC2_LDO8>;
+		voltd-supply = <&vddio_sdcard>;
 	};
 };
 
