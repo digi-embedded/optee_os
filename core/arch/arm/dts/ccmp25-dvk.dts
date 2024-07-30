@@ -484,6 +484,10 @@
 		reg = <VOLTD_SCMI_STPMIC2_LDO2>;
 		voltd-supply = <&vdd_emmc>;
 	};
+	scmi_vdd3v3_usb: voltd-vdd3v3-usb {
+		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
+		voltd-supply = <&vdd3v3_usb>;
+	};
 	scmi_ldo6: voltd-ldo6 {
 		reg = <VOLTD_SCMI_STPMIC2_LDO6>;
 		voltd-supply = <&ldo6>;
