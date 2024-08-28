@@ -258,6 +258,7 @@
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-over-current-protection;
+				regulator-always-on;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-reset;
 			};
