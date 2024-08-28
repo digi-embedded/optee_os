@@ -253,6 +253,7 @@
 				regulator-name = "vdd_emmc";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
+				regulator-always-on;
 
 				st,pwrctrl_sel = <3>;
 				st,pwrctrl_reset;
