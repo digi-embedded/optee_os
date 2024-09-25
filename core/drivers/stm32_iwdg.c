@@ -190,8 +190,6 @@ static enum itr_return stm32_iwdg_it_handler(struct itr_handler *h)
 	else
 		io_setbits32(iwdg_base + IWDG_EWCR_OFFSET, IWDG_EWCR_EWIC);
 
-	panic("Watchdog");
-
 	return ITRR_HANDLED;
 }
 
