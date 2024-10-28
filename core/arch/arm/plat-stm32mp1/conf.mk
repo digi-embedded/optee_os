@@ -15,10 +15,17 @@ flavor_dts_file-157F_ED1 = stm32mp157f-ed1.dts
 flavor_dts_file-157F_EV1 = stm32mp157f-ev1.dts
 
 flavor_dts_file-135F_DK = stm32mp135f-dk.dts
+# Digi platforms
+flavor_dts_file-ccmp13-dvk-256MB = ccmp13-dvk-256MB.dts
+flavor_dts_file-ccmp15-dvk-512MB = ccmp15-dvk-512MB.dts
+flavor_dts_file-ccmp15-dvk-1GB = ccmp15-dvk-1GB.dts
+
+flavorlist-256M = $(flavor_dts_file-ccmp13-dvk-256MB)
 
 flavorlist-cryp-512M = $(flavor_dts_file-157C_DK2) \
 		       $(flavor_dts_file-157F_DK2) \
-		       $(flavor_dts_file-135F_DK)
+		       $(flavor_dts_file-135F_DK) \
+		       $(flavor_dts_file-ccmp15-dvk-512MB)
 
 flavorlist-no_cryp-512M = $(flavor_dts_file-157A_DK1) \
 			  $(flavor_dts_file-157D_DK1)
@@ -27,7 +34,8 @@ flavorlist-cryp-1G = $(flavor_dts_file-157C_DHCOM_PDK2) \
 		     $(flavor_dts_file-157C_ED1) \
 		     $(flavor_dts_file-157C_EV1) \
 		     $(flavor_dts_file-157F_ED1) \
-		     $(flavor_dts_file-157F_EV1)
+		     $(flavor_dts_file-157F_EV1) \
+		     $(flavor_dts_file-ccmp15-dvk-1GB)
 
 flavorlist-no_cryp-1G = $(flavor_dts_file-157A_ED1) \
 			$(flavor_dts_file-157A_EV1) \
@@ -57,9 +65,12 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DHCOR_AVENGER96) \
 		  $(flavor_dts_file-157D_EV1) \
 		  $(flavor_dts_file-157F_DK2) \
 		  $(flavor_dts_file-157F_ED1) \
-		  $(flavor_dts_file-157F_EV1)
+		  $(flavor_dts_file-157F_EV1) \
+		  $(flavor_dts_file-ccmp15-dvk-512MB) \
+		  $(flavor_dts_file-ccmp15-dvk-1GB)
 
-flavorlist-MP13 = $(flavor_dts_file-135F_DK)
+flavorlist-MP13 = $(flavor_dts_file-135F_DK) \
+		  $(flavor_dts_file-ccmp13-dvk-256MB)
 
 # External device tree default path
 CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
@@ -285,6 +296,9 @@ else
 CFG_STM32MP1_SCMI_SHM_BASE ?= 0
 endif
 $(call force,CFG_STM32MP1_SCMI_SHM_SIZE,0x1000)
+ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-256M)),)
+CFG_DRAM_SIZE    ?= 0x10000000
+endif
 
 ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-512M)),)
 CFG_DRAM_SIZE    ?= 0x20000000
