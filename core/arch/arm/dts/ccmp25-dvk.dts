@@ -89,6 +89,7 @@
 		st,wakeup-pin-number = <1>;
 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
 		st,notif-it-id = <0 1>;
+		wakeup-parent = <&pwr>;
 		status = "okay";
 
 		regulators {
@@ -393,8 +394,7 @@
 };
 
 &pwr {
-	pinctrl-names = "default";
-	pinctrl-0 = <&wakeup_pins>;
+	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
 	status = "okay";
 
 	vdd33ucpd: vdd33ucpd {
