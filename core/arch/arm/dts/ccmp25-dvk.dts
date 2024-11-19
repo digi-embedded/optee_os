@@ -527,11 +527,11 @@
 	st,tamp-passive-sample-clk-div = <16384>;
 
 	/* Tamper button */
-	tamp_button: tamp-passive@1 {
-		status = "disabled";
-		reg = <EXT_TAMPER_1 0>;
-		pinctrl-0 = <&tamp_in1_pin_a>;
+	tamp_button {
+		status = "okay";
+		tamper-gpios = <&gpioz 2 0>;
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
+		st,tamp-id = <1>;
 	};
 };
 
