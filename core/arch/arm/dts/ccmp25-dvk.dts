@@ -11,10 +11,6 @@
 #include <dt-bindings/regulator/st,stm32mp25-regulator.h>
 #include <dt-bindings/reset/stm32mp25-resets.h>
 #include <dt-bindings/soc/stm32mp-provisioning.h>
-#include <dt-bindings/soc/stm32mp25-rif.h>
-#include <dt-bindings/soc/stm32mp25-risab.h>
-#include <dt-bindings/soc/stm32mp25-risaf.h>
-#include <dt-bindings/soc/stm32mp25-rifsc.h>
 #include <dt-bindings/tamper/st,stm32mp25-tamp.h>
 #include "stm32mp257.dtsi"
 #include "stm32mp25xf.dtsi"
