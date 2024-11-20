@@ -485,35 +485,35 @@
 };
 
 &scmi_regu {
-	scmi_vddcore: voltd-vddcore {
+	voltd-vddcore {
 		reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
 		voltd-supply = <&vddcore>;
 	};
-	scmi_v1v8: voltd-v1v8 {
+	voltd-v1v8 {
 		reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
 		voltd-supply = <&v1v8>;
 	};
-	scmi_v3v3: voltd-v3v3 {
+	voltd-v3v3 {
 		reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
 		voltd-supply = <&v3v3>;
 	};
-	scmi_vdd_emmc: voltd-vdd-emmc {
+	voltd-vdd-emmc {
 		reg = <VOLTD_SCMI_STPMIC2_LDO2>;
 		voltd-supply = <&vdd_emmc>;
 	};
-	scmi_vdd3v3_usb: voltd-vdd3v3-usb {
+	voltd-vdd3v3-usb {
 		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
 		voltd-supply = <&vdd3v3_usb>;
 	};
-	scmi_ldo6: voltd-ldo6 {
+	voltd-ldo6 {
 		reg = <VOLTD_SCMI_STPMIC2_LDO6>;
 		voltd-supply = <&ldo6>;
 	};
-	scmi_ldo7: voltd-ldo7 {
+	voltd-ldo7 {
 		reg = <VOLTD_SCMI_STPMIC2_LDO7>;
 		voltd-supply = <&ldo7>;
 	};
-	scmi_ldo8_1v8_rf: voltd-ldo8 {
+	voltd-v1v8-rf {
 		reg = <VOLTD_SCMI_STPMIC2_LDO8>;
 		voltd-supply = <&ldo8_1v8_rf>;
 	};
