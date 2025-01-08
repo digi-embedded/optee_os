@@ -93,7 +93,7 @@
 		DECPROT(STM32MP1_ETZPC_USART1_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_USART2_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
 		DECPROT(STM32MP1_ETZPC_USBPHYCTRL_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
-		DECPROT(STM32MP1_ETZPC_VREFBUF_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
+		DECPROT(STM32MP1_ETZPC_VREFBUF_ID, DECPROT_S_RW, DECPROT_UNLOCK)
 	>;
 };
 
@@ -591,6 +591,11 @@
 		voltd-name = "vbus_sw";
 		regulator-name = "vbus_sw";
 	};
+	/* Uncomment when enabling 'vrefbuf' regulator */
+	// scmi_vrefbuf: voltd-vrefbuf {
+	// 	voltd-name = "vrefbuf";
+	// 	regulator-name = "vrefbuf";
+	// };
 };
 
 &tamp {
@@ -621,6 +626,15 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5_pins_a>;
 	status = "okay";
+};
+
+&vrefbuf {
+	vdda-supply = <&vdd_adc>;
+	/*
+	 * Enable to use internal VREFBUF voltage for ADC and uncomment
+	 * scmi_vrefbuf entries.
+	 */
+	status = "disabled";
 };
 
 &wakeup_pin_1 {
