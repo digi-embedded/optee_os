@@ -514,11 +514,11 @@
 	st,tamp-passive-sample-clk-div = <16384>;
 
 	/* Tamper button */
-	tamp_button {
+	tamp-button {
 		status = "okay";
 		tamper-gpios = <&gpioz 2 0>;
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
-		st,tamp-id = <1>;
+		st,tamp-id = <3>;
 	};
 };
 
