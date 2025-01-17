@@ -321,7 +321,20 @@
 				regulator-max-microvolt = <1800000>;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
-				st,pwrctrl-reset;
+				st,pwrctrl-enable;
+
+				default {
+					regulator-off-in-suspend;
+				};
+				lplv {
+					regulator-off-in-suspend;
+				};
+				standby {
+					regulator-off-in-suspend;
+				};
+				off {
+					regulator-off-in-suspend;
+				};
 			};
 			ldo8_1v8_rf: ldo8 {
 				regulator-name = "ldo8_1v8_rf";
@@ -330,7 +343,20 @@
 				regulator-enable-ramp-delay = <1000>; /* Minimum of 50 us */
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
-				st,pwrctrl-reset;
+				st,pwrctrl-enable;
+
+				default {
+					regulator-off-in-suspend;
+				};
+				lplv {
+					regulator-off-in-suspend;
+				};
+				standby {
+					regulator-off-in-suspend;
+				};
+				off {
+					regulator-off-in-suspend;
+				};
 			};
 			vref_ddr: refddr {
 				regulator-name = "vref_ddr";
