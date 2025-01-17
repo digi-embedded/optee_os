@@ -515,7 +515,7 @@
 
 	/* Tamper button */
 	tamp-button {
-		status = "okay";
+		status = "disabled";
 		tamper-gpios = <&gpioz 2 0>;
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
 		st,tamp-id = <3>;
