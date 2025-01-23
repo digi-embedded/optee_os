@@ -591,11 +591,10 @@
 		voltd-name = "vbus_sw";
 		regulator-name = "vbus_sw";
 	};
-	/* Uncomment when enabling 'vrefbuf' regulator */
-	// scmi_vrefbuf: voltd-vrefbuf {
-	// 	voltd-name = "vrefbuf";
-	// 	regulator-name = "vrefbuf";
-	// };
+	scmi_vrefbuf: voltd-vrefbuf {
+		voltd-name = "vrefbuf";
+		regulator-name = "vrefbuf";
+	};
 };
 
 &tamp {
@@ -630,11 +629,7 @@
 
 &vrefbuf {
 	vdda-supply = <&vdd_adc>;
-	/*
-	 * Enable to use internal VREFBUF voltage for ADC and uncomment
-	 * scmi_vrefbuf entries.
-	 */
-	status = "disabled";
+	status = "okay";
 };
 
 &wakeup_pin_1 {
