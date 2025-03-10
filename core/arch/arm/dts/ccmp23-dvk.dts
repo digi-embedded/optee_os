@@ -12,17 +12,17 @@
 #include <dt-bindings/reset/stm32mp25-resets.h>
 #include <dt-bindings/soc/stm32mp-provisioning.h>
 #include <dt-bindings/tamper/st,stm32mp25-tamp.h>
-#include "stm32mp257.dtsi"
-#include "stm32mp25xf.dtsi"
-#include "ccmp25-dvk-rcc.dtsi"
-#include "ccmp25-dvk-resmem.dtsi"
-#include "ccmp25-dvk-rif.dtsi"
+#include "stm32mp235.dtsi"
+#include "stm32mp23xf.dtsi"
+#include "ccmp23-dvk-rcc.dtsi"
+#include "ccmp23-dvk-resmem.dtsi"
+#include "ccmp23-dvk-rif.dtsi"
 #include "stm32mp25-pinctrl.dtsi"
 #include "stm32mp25xxai-pinctrl.dtsi"
 
 / {
-	model = "Digi International ConnectCore MP25 Development Kit";
-	compatible = "digi,ccmp25-dvk", "digi,ccmp25", "st,stm32mp257";
+	model = "Digi International ConnectCore MP23 Development Kit";
+	compatible = "digi,ccmp23-dvk", "digi,ccmp23", "st,stm32mp235";
 
 	aliases {
 		serial0 = &usart2;
@@ -486,10 +486,6 @@
 };
 
 &risaf2 {
-	status = "okay";
-};
-
-&risaf5 {
 	status = "okay";
 };
 
