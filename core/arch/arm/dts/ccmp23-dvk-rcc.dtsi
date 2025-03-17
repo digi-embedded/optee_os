@@ -149,12 +149,6 @@
 			cfg = <20 1 1 2>;
 			src = <MUX_CFG(MUX_MUXSEL7, MUXSEL_HSE)>;
 		};
-
-		pll3_cfg_900Mhz: pll3-cfg-900Mhz {
-			/* cfg = <FBDIVx> <FREFDIVx> <POSTDIV1_x> <POSTDIV2_x> */
-			cfg = <45 2 1 1>;
-			src = <MUX_CFG(MUX_MUXSEL7, MUXSEL_HSE)>;
-		};
 	};
 
 	pll4: st,pll-4 {
