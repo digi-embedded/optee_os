@@ -528,9 +528,9 @@ unsigned long long stm32_rtc_diff_calendar_tick(struct stm32_rtc_calendar *cur,
 
 	diff_in_tick += stm32_rtc_diff_subs_tick(cur, ref, tick_rate);
 	diff_in_tick += stm32_rtc_diff_time_ms(&curr_t, &ref_t) *
-			tick_rate / MS_PER_SEC;
+			UDIV_ROUND_NEAREST(tick_rate, MS_PER_SEC);
 	diff_in_tick += stm32_rtc_diff_date_ms(&curr_t, &ref_t) *
-			tick_rate / MS_PER_SEC;
+			UDIV_ROUND_NEAREST(tick_rate, MS_PER_SEC);
 
 	if (diff_in_tick < 0)
 		panic("Negative time difference is not allowed");

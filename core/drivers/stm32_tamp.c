@@ -588,9 +588,9 @@ static void apply_rif_config(void)
 
 	/* Security and privilege RIF configuration */
 	io_clrsetbits32(base + _TAMP_PRIVCFGR,
-			_TAMP_PRIVCFGR_MASK & access_mask_sec_reg, privcfgr);
+			_TAMP_PRIVCFGR_MASK & access_mask_priv_reg, privcfgr);
 	io_clrsetbits32(base + _TAMP_SECCFGR,
-			_TAMP_SECCFGR_BUT_BKP_MASK & access_mask_priv_reg,
+			_TAMP_SECCFGR_BUT_BKP_MASK & access_mask_sec_reg,
 			seccfgr);
 
 	if (!stm32_tamp.pdata.is_tdcid)
