@@ -212,7 +212,7 @@
 	};
 };
 
-&iwdg2 {
+&iwdg1 {
 	timeout-sec = <32>;
 	secure-timeout-sec = <15>;
 	status = "okay";
@@ -244,29 +244,9 @@
 		CLK_MPU_PLL1P
 		CLK_AXI_PLL2P
 		CLK_MCU_PLL3P
-		CLK_PLL12_HSE
-		CLK_PLL3_HSE
-		CLK_PLL4_HSE
 		CLK_RTC_LSE
 		CLK_MCO1_DISABLED
 		CLK_MCO2_DISABLED
-	>;
-
-	st,clkdiv = <
-		1 /*MPU*/
-		0 /*AXI*/
-		0 /*MCU*/
-		1 /*APB1*/
-		1 /*APB2*/
-		1 /*APB3*/
-		1 /*APB4*/
-		2 /*APB5*/
-		23 /*RTC*/
-		0 /*MCO1*/
-		0 /*MCO2*/
-	>;
-
-	st,pkcs = <
 		CLK_CKPER_HSE
 		CLK_FMC_ACLK
 		CLK_QSPI_ACLK
@@ -304,27 +284,78 @@
 		CLK_LPTIM45_LSE
 	>;
 
+	st,clkdiv = <
+		DIV(DIV_MPU, 1)
+		DIV(DIV_AXI, 0)
+		DIV(DIV_MCU, 0)
+		DIV(DIV_APB1, 1)
+		DIV(DIV_APB2, 1)
+		DIV(DIV_APB3, 1)
+		DIV(DIV_APB4, 1)
+		DIV(DIV_APB5, 2)
+		DIV(DIV_RTC, 23)
+		DIV(DIV_MCO1, 0)
+		DIV(DIV_MCO2, 0)
+	>;
+
+	st,pll_vco {
+		pll2_vco_1066Mhz: pll2-vco-1066Mhz {
+			src = <CLK_PLL12_HSE>;
+			divmn = <2 65>;
+			frac = <0x1400>;
+		};
+
+		/* VCO = 417.8 MHz => P = 209, Q = 12.28, R = 11 */
+		pll3_vco_417Mhz: pll3-vco-417Mhz {
+			src = <CLK_PLL3_HSE>;
+			divmn = <1 33>;
+			frac = <0x1a04>;
+		};
+
+		/* VCO = 594.0 MHz => P = 99, Q = 74, R = 66 */
+		pll4_vco_594Mhz: pll4-vco-594Mhz {
+			src = <CLK_PLL4_HSE>;
+			divmn = <3 98>;
+		};
+	};
+
 	/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 533 (GPU), R = 533 (DDR) */
 	pll2: st,pll@1 {
 		compatible = "st,stm32mp1-pll";
 		reg = <1>;
-		cfg = <2 65 1 0 0 PQR(1,1,1)>;
-		frac = <0x1400>;
+
+		st,pll = <&pll2_cfg1>;
+
+		pll2_cfg1: pll2_cfg1 {
+			st,pll_vco = <&pll2_vco_1066Mhz>;
+			st,pll_div_pqr = <1 0 0>;
+		};
 	};
 
 	/* VCO = 417.8 MHz => P = 209, Q = 12.28, R = 11 */
 	pll3: st,pll@2 {
 		compatible = "st,stm32mp1-pll";
 		reg = <2>;
-		cfg = <1 33 1 33 36 PQR(1,1,1)>;
-		frac = <0x1a04>;
+
+		st,pll = <&pll3_cfg1>;
+
+		pll3_cfg1: pll3_cfg1 {
+			st,pll_vco = <&pll3_vco_417Mhz>;
+			st,pll_div_pqr = <1 33 36>;
+		};
 	};
 
 	/* VCO = 594.0 MHz => P = 99, Q = 74, R = 66 */
 	pll4: st,pll@3 {
 		compatible = "st,stm32mp1-pll";
 		reg = <3>;
-		cfg = <3 98 5 7 8 PQR(1,1,1)>;
+
+		st,pll = <&pll4_cfg1>;
+
+		pll4_cfg1: pll4_cfg1 {
+			st,pll_vco = <&pll4_vco_594Mhz>;
+			st,pll_div_pqr = <5 7 8>;
+		};
 	};
 };
 
@@ -396,6 +427,10 @@
 		regulator-suspend-microvolt = <3300000>;
 		regulator-on-in-suspend;
 	};
+	lplv-stop {
+		regulator-suspend-microvolt = <3300000>;
+		regulator-on-in-suspend;
+	};
 	standby-ddr-sr {
 		regulator-suspend-microvolt = <3300000>;
 		regulator-on-in-suspend;
@@ -420,6 +455,10 @@
 		regulator-on-in-suspend;
 		regulator-suspend-microvolt = <1200000>;
 	};
+	lplv-stop {
+		regulator-on-in-suspend;
+		regulator-suspend-microvolt = <900000>;
+	};
 	standby-ddr-sr {
 		regulator-off-in-suspend;
 	};
@@ -430,6 +469,10 @@
 
 &vdd_ddr {
 	lp-stop {
+		regulator-suspend-microvolt = <1350000>;
+		regulator-on-in-suspend;
+	};
+	lplv-stop {
 		regulator-suspend-microvolt = <1350000>;
 		regulator-on-in-suspend;
 	};
@@ -455,6 +498,9 @@
 	lp-stop {
 		regulator-on-in-suspend;
 	};
+	lplv-stop {
+		regulator-on-in-suspend;
+	};
 	standby-ddr-sr {
 		regulator-on-in-suspend;
 	};
@@ -465,6 +511,9 @@
 
 &vtt_ddr {
 	lp-stop {
+		regulator-off-in-suspend;
+	};
+	lplv-stop {
 		regulator-off-in-suspend;
 	};
 	standby-ddr-sr {
