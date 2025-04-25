@@ -2,7 +2,7 @@
 /*
  * Copyright (C) STMicroelectronics 2019 - All Rights Reserved
  * Author: Alexandre Torgue <alexandre.torgue@st.com> for STMicroelectronics.
- * Copyright (C) 2022, Digi International Inc - All Rights Reserved
+ * Copyright (C) 2022-2025, Digi International Inc - All Rights Reserved
  */
 
 /dts-v1/;
@@ -25,6 +25,36 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		mcusram1: mcuram1@10000000 {
+			compatible = "shared-dma-pool";
+			reg = <0x10000000 0x20000>;
+			no-map;
+		};
+
+		mcusram2: mcuram2@10020000 {
+			compatible = "shared-dma-pool";
+			reg = <0x10020000 0x20000>;
+			no-map;
+		};
+
+		mcusram3: mcuram3@10040000 {
+			compatible = "shared-dma-pool";
+			reg = <0x10040000 0x10000>;
+			no-map;
+		};
+
+		retram: retram@38000000 {
+			compatible = "shared-dma-pool";
+			reg = <0x38000000 0x10000>;
+			no-map;
+		};
 	};
 
 	vin: vin {
@@ -216,6 +246,15 @@
 	timeout-sec = <32>;
 	secure-timeout-sec = <15>;
 	status = "okay";
+};
+
+&m4_rproc {
+	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
+	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
+	mbox-names = "vq0", "vq1", "shutdown", "detach";
+	interrupt-parent = <&exti>;
+	interrupts = <68 1>;
+	status = "disabled";
 };
 
 &mcusram1 {
