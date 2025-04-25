@@ -13,6 +13,7 @@
 #include "stm32mp15xxac-pinctrl.dtsi"
 #include <dt-bindings/clock/stm32mp1-clksrc.h>
 #include <dt-bindings/power/stm32mp1-power.h>
+#include <dt-bindings/soc/stm32mp-provisioning.h>
 
 / {
 	model = "Digi International ConnectCore MP15 Development Kit";
@@ -53,6 +54,15 @@
 			compatible = "shared-dma-pool";
 			reg = <0x38000000 0x10000>;
 			no-map;
+		};
+	};
+
+	shadow-prov {
+		compatible = "st,provisioning";
+		hw2_prov {
+			nvmem-cells = <&hw2_otp>;
+			st,shadow-value = <0x000001E0>;
+			st,shadow-lock = <STICKY_LOCK_SR>;
 		};
 	};
 
