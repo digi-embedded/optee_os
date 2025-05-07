@@ -221,7 +221,7 @@ static TEE_Result vrefbuf_pm(enum pm_op op, unsigned int pm_hint __unused,
 
 		io_clrsetbits32(reg,  STM32_VRS, vr->pm_val);
 
-		if (vr->pm_val | STM32_ENVR) {
+		if (vr->pm_val & STM32_ENVR) {
 			vr->disable_timeout = 0;
 			vrefbuf_set_state(&vr->desc, true);
 		}
