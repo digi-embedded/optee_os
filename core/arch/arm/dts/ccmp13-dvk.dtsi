@@ -100,15 +100,15 @@
 };
 
 &gpiob {
-	st,protreg = < (TZPROT(9)) >;
+	st,protreg = < (TZPROT(9)) >;  /* PMIC I2C4_SDA */
 };
 
 &gpioe {
-	st,protreg = < (TZPROT(15)) >;
+	st,protreg = < (TZPROT(15)) >; /* PMIC I2C4_SCL */
 };
 
 &gpiof {
-	st,protreg = < (TZPROT(8)) >;
+	st,protreg = < (TZPROT(8)) >; /* PMIC WKUP */
 };
 
 &hash {
