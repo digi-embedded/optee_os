@@ -33,6 +33,15 @@
 		stdout-path = "serial0:115200n8";
 	};
 
+	shadow-prov {
+		compatible = "st,provisioning";
+		hw2_prov {
+			nvmem-cells = <&hw2_otp>;
+			st,shadow-value = <0x000001E0>;
+			st,shadow-lock = <STICKY_LOCK_SR>;
+		};
+	};
+
 	vin: vin {
 		compatible = "regulator-fixed";
 		regulator-name = "vin";
