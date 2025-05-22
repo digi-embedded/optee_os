@@ -348,7 +348,7 @@ static TEE_Result cipher_buffer(void *session, uint32_t param_types,
 		return TEE_ERROR_BAD_PARAMETERS;
 
 	if (params[1].memref.size < params[0].memref.size) {
-		EMSG("Bad sizes: in %d, out %d", params[0].memref.size,
+		EMSG("Bad sizes: in %zu, out %zu", params[0].memref.size,
 						 params[1].memref.size);
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
