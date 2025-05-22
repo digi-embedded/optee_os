@@ -399,8 +399,6 @@
 };
 
 &rcc {
-	compatible = "st,stm32mp13-rcc", "syscon", "st,stm32mp13-rcc-mco";
-
 	st,clksrc = <
 		CLK_MPU_PLL1P
 		CLK_AXI_PLL2P
