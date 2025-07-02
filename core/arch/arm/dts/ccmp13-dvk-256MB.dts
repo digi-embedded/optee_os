@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+/*
+ * Copyright (C) 2024, Digi International Inc - All Rights Reserved
+ */
+
+/dts-v1/;
+
+/* Digi ConnectCore CCMP13 DVK */
+#include "ccmp13-dvk.dtsi"
+
+/ {
+	memory@c0000000 {
+		device_type = "memory";
+		reg = <0xc0000000 0x10000000>; /* 256 MiB */
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		optee_framebuffer: optee-framebuffer@cd000000 {
+			/* Secure framebuffer memory */
+			reg = <0xcd000000 0x1000000>;
+			st,protreg = <TZC_REGION_S_RDWR 0>;
+		};
+	};
+};

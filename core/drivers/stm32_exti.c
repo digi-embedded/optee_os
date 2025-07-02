@@ -61,6 +61,7 @@ struct stm32_exti_pdata {
 	uint32_t hwcfgr1;
 	uint32_t wake_active[_EXTI_BANK_NR];
 	uint32_t mask_cache[_EXTI_BANK_NR];
+	uint32_t imr_cache[_EXTI_BANK_NR];
 	uint32_t seccfgr_cache[_EXTI_BANK_NR];
 	uint32_t privcfgr_cache[_EXTI_BANK_NR];
 	uint32_t access_mask[_EXTI_BANK_NR];
@@ -74,9 +75,6 @@ struct stm32_exti_pdata {
 
 	bool glock;
 };
-
-static SLIST_HEAD(, stm32_exti_pdata) stm32_exti_list =
-	SLIST_HEAD_INITIALIZER(stm32_exti_list);
 
 static uint32_t stm32_exti_get_bank(uint32_t exti_line)
 {
@@ -156,7 +154,6 @@ void stm32_exti_set_type(struct stm32_exti_pdata *exti, uint32_t exti_line,
 
 void stm32_exti_mask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 {
-	uint32_t val = 0;
 	uint32_t mask = BIT(exti_line % 32);
 	uint32_t exceptions = 0;
 	unsigned int i = 0;
@@ -165,17 +162,14 @@ void stm32_exti_mask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
-	val = io_read32(exti->base + _EXTI_C1IMR(i));
-	val &= ~mask;
-	io_write32(exti->base + _EXTI_C1IMR(i), val);
-	exti->mask_cache[i] = val;
+	io_clrbits32(exti->base + _EXTI_C1IMR(i), mask);
+	exti->mask_cache[i] &= ~mask;
 
 	cpu_spin_unlock_xrestore(&exti->lock, exceptions);
 }
 
 void stm32_exti_unmask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 {
-	uint32_t val = 0;
 	uint32_t mask = BIT(exti_line % 32);
 	uint32_t exceptions = 0;
 	unsigned int i = 0;
@@ -184,10 +178,8 @@ void stm32_exti_unmask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
-	val = io_read32(exti->base + _EXTI_C1IMR(i));
-	val |= mask;
-	io_write32(exti->base + _EXTI_C1IMR(i), val);
-	exti->mask_cache[i] = val;
+	io_setbits32(exti->base + _EXTI_C1IMR(i), mask);
+	exti->mask_cache[i] |= mask;
 
 	cpu_spin_unlock_xrestore(&exti->lock, exceptions);
 }
@@ -443,7 +435,6 @@ static void stm32_exti_rif_save(struct stm32_exti_pdata *exti)
 static void stm32_exti_pm_suspend(struct stm32_exti_pdata *exti)
 {
 	uint32_t base = exti->base;
-	uint32_t mask = 0;
 	uint32_t i = 0;
 
 	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti))
@@ -454,10 +445,6 @@ static void stm32_exti_pm_suspend(struct stm32_exti_pdata *exti)
 		exti->ftsr_cache[i] = io_read32(base + _EXTI_FTSR(i));
 		exti->rtsr_cache[i] = io_read32(base + _EXTI_RTSR(i));
 		exti->seccfgr_cache[i] = io_read32(base + _EXTI_SECCFGR(i));
-
-		/* Let enabled only the wakeup sources set */
-		mask = exti->wake_active[i];
-		io_mask32(base + _EXTI_C1IMR(i), mask, mask);
 	}
 
 	/* Save EXTI port selection */
@@ -475,9 +462,6 @@ static void stm32_exti_pm_resume(struct stm32_exti_pdata *exti)
 		io_write32(base + _EXTI_FTSR(i), exti->ftsr_cache[i]);
 		io_write32(base + _EXTI_RTSR(i), exti->rtsr_cache[i]);
 		io_write32(base + _EXTI_SECCFGR(i), exti->seccfgr_cache[i]);
-
-		/* Restore imr */
-		io_write32(base + _EXTI_C1IMR(i), exti->mask_cache[i]);
 	}
 
 	/* Restore EXTI port selection */
@@ -488,18 +472,49 @@ static void stm32_exti_pm_resume(struct stm32_exti_pdata *exti)
 		stm32_exti_rif_apply(exti);
 }
 
-static TEE_Result
-stm32_exti_pm(enum pm_op op, unsigned int pm_hint __unused,
-	      const struct pm_callback_handle *pm_handle __unused)
+/* PM function: configure the wake_up line for OP-TEE */
+static void stm32_exti_configure_wake(struct stm32_exti_pdata *exti)
 {
-	struct stm32_exti_pdata *exti = NULL;
+	uint32_t i = 0;
 
-	SLIST_FOREACH(exti, &stm32_exti_list, link) {
-		if (op == PM_OP_SUSPEND)
-			stm32_exti_pm_suspend(exti);
-		else
-			stm32_exti_pm_resume(exti);
+	for (i = 0; i < _EXTI_BANK_NR; i++) {
+		/* save IMR value, lost in Standby */
+		exti->imr_cache[i] = io_read32(exti->base + _EXTI_C1IMR(i));
+		/* deactivate in IMR the interruption activated in OP-TEE */
+		io_clrbits32(exti->base + _EXTI_C1IMR(i), exti->mask_cache[i]);
+		/* activate in IMR for OP-TEE wakeup interruption */
+		io_setbits32(exti->base + _EXTI_C1IMR(i), exti->wake_active[i]);
 	}
+}
+
+static void stm32_exti_restore_wake(struct stm32_exti_pdata *exti)
+{
+	uint32_t i = 0;
+
+	/* restore saved IMR value: interruption secure/unsecure */
+	for (i = 0; i < _EXTI_BANK_NR; i++)
+		io_write32(exti->base + _EXTI_C1IMR(i), exti->imr_cache[i]);
+}
+
+static TEE_Result
+stm32_exti_pm(enum pm_op op, unsigned int pm_hint,
+	      const struct pm_callback_handle *pm_handle)
+{
+	struct stm32_exti_pdata *exti =
+		(struct stm32_exti_pdata *)PM_CALLBACK_GET_HANDLE(pm_handle);
+
+	if (op == PM_OP_SUSPEND)
+		stm32_exti_configure_wake(exti);
+	else
+		stm32_exti_restore_wake(exti);
+
+	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+		return TEE_SUCCESS;
+
+	if (op == PM_OP_SUSPEND)
+		stm32_exti_pm_suspend(exti);
+	else
+		stm32_exti_pm_resume(exti);
 
 	return TEE_SUCCESS;
 }
@@ -548,9 +563,7 @@ static TEE_Result stm32_exti_probe(const void *fdt, int node,
 	if (res)
 		goto err;
 
-	SLIST_INSERT_HEAD(&stm32_exti_list, exti, link);
-
-	register_pm_core_service_cb(stm32_exti_pm, NULL, "stm32-exti");
+	register_pm_core_service_cb(stm32_exti_pm, exti, "stm32-exti");
 
 	return TEE_SUCCESS;
 

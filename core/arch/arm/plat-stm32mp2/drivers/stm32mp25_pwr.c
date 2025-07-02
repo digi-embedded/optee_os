@@ -15,6 +15,7 @@
 #include <kernel/dt.h>
 #include <kernel/dt_driver.h>
 #include <kernel/panic.h>
+#include <kernel/pm.h>
 #include <libfdt.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -292,6 +293,76 @@ skip_rif:
 #endif
 }
 
+static void pm_resume(void)
+{
+	if (apply_rif_config(true))
+		panic();
+}
+
+static void pm_suspend(void)
+{
+	unsigned int wio_offset = 0;
+	uint32_t wio_priv = 0;
+	uint32_t wio_sec = 0;
+	uint32_t r_priv = 0;
+	uint32_t r_sec = 0;
+	size_t i = 0;
+
+	for (i = 0; i < _PWR_NB_RESSOURCES; i++) {
+		if (i < _PWR_NB_NS_RESSOURCES) {
+			pwr_d->conf_data->cid_confs[i] =
+				io_read32(pwr_d->base + _PWR_R_CIDCFGR(i)) &
+				_PWR_CIDCFGR_R_CONF_MASK;
+		} else {
+			wio_offset = i + 1 - _PWR_NB_NS_RESSOURCES;
+			pwr_d->conf_data->cid_confs[i] =
+				io_read32(pwr_d->base +
+					  _PWR_WIO_CIDCFGR(wio_offset)) &
+				_PWR_CIDCFGR_W_CONF_MASK;
+		}
+	}
+
+	r_priv = io_read32(pwr_d->base + _PWR_RPRIVCFGR) & _PWR_R_PRIVCFGR_MASK;
+	r_sec =  io_read32(pwr_d->base + _PWR_RSECCFGR) & _PWR_R_SECCFGR_MASK;
+	wio_priv = io_read32(pwr_d->base + _PWR_WIOPRIVCFGR) &
+		   _PWR_WIO_PRIVCFGR_MASK;
+	wio_sec = io_read32(pwr_d->base + _PWR_WIOSECCFGR) &
+		  _PWR_WIO_SECCFGR_MASK;
+
+	pwr_d->conf_data->priv_conf[0] = r_priv |
+					 (wio_priv << _PWR_NB_NS_RESSOURCES);
+	pwr_d->conf_data->sec_conf[0] = r_sec |
+					(wio_sec << _PWR_NB_NS_RESSOURCES);
+
+	/*
+	 * The access mask is modified to restore the conf for all
+	 * resources.
+	 */
+	pwr_d->conf_data->access_mask[0] = GENMASK_32(_PWR_NB_RESSOURCES - 1,
+						      0);
+}
+
+static TEE_Result pwr_pm(enum pm_op op, unsigned int pm_hint,
+			 const struct pm_callback_handle *pm_handle __unused)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	bool is_tdcid = false;
+
+	res = stm32_rifsc_check_tdcid(&is_tdcid);
+	if (res)
+		panic();
+
+	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT) || !is_tdcid)
+		return TEE_SUCCESS;
+
+	if (op == PM_OP_RESUME)
+		pm_resume();
+	else
+		pm_suspend();
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result stm32mp_pwr_probe(const void *fdt, int node,
 				    const void *compat_data __unused)
 {
@@ -339,6 +410,8 @@ static TEE_Result stm32mp_pwr_probe(const void *fdt, int node,
 			panic();
 		}
 	}
+
+	register_pm_core_service_cb(pwr_pm, NULL, "stm32-pwr");
 
 	return TEE_SUCCESS;
 }

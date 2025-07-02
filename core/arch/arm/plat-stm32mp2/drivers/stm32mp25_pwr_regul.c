@@ -418,6 +418,7 @@ DECLARE_KEEP_PAGER(pwr_regu_ops);
 static const struct regulator_ops pwr_regu_fixed_ops = {
 	.set_state = pwr_set_state,
 	.get_state = pwr_get_state,
+	.supplied_init = pwr_supplied_init,
 };
 DECLARE_KEEP_PAGER(pwr_regu_fixed_ops);
 
