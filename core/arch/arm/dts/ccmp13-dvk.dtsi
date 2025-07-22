@@ -2,7 +2,7 @@
 /*
  * Copyright (C) STMicroelectronics 2021 - All Rights Reserved
  * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
- * Copyright (C) 2022, Digi International Inc - All Rights Reserved
+ * Copyright (C) 2022-2025 Digi International Inc - All Rights Reserved
  */
 
 /dts-v1/;
@@ -140,8 +140,8 @@
 		compatible = "st,stpmic1";
 		reg = <0x33>;
 		status = "okay";
-		wakeup-parent = <&pwr_irq>;
-		st,wakeup-pin-number = <1>;
+		interrupts-extended = <&exti 55 IRQ_TYPE_EDGE_FALLING>;
+		wakeup-source;
 		st,pmic-it-id = <IT_PONKEY_F IT_PONKEY_R>;
 		st,notif-it-id = <0 1>;
 
