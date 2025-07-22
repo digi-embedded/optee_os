@@ -18,6 +18,7 @@
 #include "ccmp25-dvk-resmem.dtsi"
 #include "ccmp25-dvk-rif.dtsi"
 #include "stm32mp25-pinctrl.dtsi"
+#include "stm32mp25-st-scmi-cfg.dtsi"
 #include "stm32mp25xxai-pinctrl.dtsi"
 
 / {
