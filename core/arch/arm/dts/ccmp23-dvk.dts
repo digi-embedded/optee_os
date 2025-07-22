@@ -87,10 +87,10 @@
 	pmic2: stpmic2@33 {
 		compatible = "st,stpmic2";
 		reg = <0x33>;
-		st,wakeup-pin-number = <1>;
+		interrupts-extended = <&exti1 52 IRQ_TYPE_EDGE_FALLING>;
+		wakeup-source;
 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
 		st,notif-it-id = <0 1>;
-		wakeup-parent = <&pwr>;
 		status = "okay";
 
 		regulators {
