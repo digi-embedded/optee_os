@@ -687,7 +687,13 @@ static void stpmic2_handle_irq_reg(struct stpmic2 *pmic,
 
 			/* handle over-current protection */
 			if (res != ITRR_HANDLED && it_id >= IT_BUCK1_OCP) {
-				uint8_t regu_id = (reg_index - U(2)) * U(8) + i;
+				uint8_t regu_id = it_id - IT_BUCK1_OCP +
+						  STPMIC2_BUCK1;
+
+				/* handle Offset due to BUCK1H */
+				if (it_id >= IT_BUCK2_OCP)
+					regu_id = it_id - IT_BUCK2_OCP +
+						   STPMIC2_BUCK2;
 
 				EMSG("Overcurrent on %s, disable regulator",
 				     regul_table[regu_id].name);

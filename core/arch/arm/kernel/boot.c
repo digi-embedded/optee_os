@@ -1237,10 +1237,26 @@ void __weak boot_init_primary_late(unsigned long fdt,
 		IMSG("Initializing virtualization support");
 		core_mmu_init_virtualization();
 	} else {
+		/*
+		 * Unmask native interrupts during driver initcalls.
+		 *
+		 * NS-virtualization still uses the temporary stack also
+		 * used for exception handling so it must still have native
+		 * interrupts masked.
+		 */
+		thread_set_exceptions(thread_get_exceptions() &
+				      ~THREAD_EXCP_NATIVE_INTR);
 		init_tee_runtime();
 	}
+
 	call_finalcalls();
+
 	IMSG("Primary CPU switching to normal world boot");
+
+	/* Mask native interrupts before switching to the normal world */
+	if (!IS_ENABLED(CFG_NS_VIRTUALIZATION))
+		thread_set_exceptions(thread_get_exceptions() |
+				      THREAD_EXCP_NATIVE_INTR);
 }
 
 static void init_secondary_helper(unsigned long nsec_entry)

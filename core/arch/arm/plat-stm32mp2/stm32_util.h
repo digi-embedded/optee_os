@@ -11,22 +11,11 @@
 #include <stdint.h>
 #include <types_ext.h>
 
-static inline void stm32mp_register_secure_periph_iomem(vaddr_t base __unused)
-{
-}
-
-static inline void stm32mp_register_non_secure_periph_iomem(vaddr_t base
-							    __unused) { }
-
-static inline void stm32mp_register_gpioz_pin_count(size_t count __unused) { }
-
 #define may_spin_lock(lock)		  cpu_spin_lock_xsave(lock)
 #define may_spin_unlock(lock, exceptions) cpu_spin_unlock_xrestore(lock, \
 								   exceptions)
 
 void __noreturn do_reset(const char *str);
-
-TEE_Result stm32_activate_internal_tamper(int id);
 
 #ifdef CFG_STM32_CPU_OPP
 bool stm32mp_supports_cpu_opp(uint32_t opp_id);
@@ -45,4 +34,6 @@ void stm32_debug_suspend(unsigned long a0);
 
 bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
 
+/* Get device ID from SYSCFG registers */
+uint32_t stm32mp_syscfg_get_chip_dev_id(void);
 #endif /*__STM32_UTIL_H__*/

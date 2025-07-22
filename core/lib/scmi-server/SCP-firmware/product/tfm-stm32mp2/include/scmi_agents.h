@@ -7,7 +7,7 @@
 
 #ifndef SCMI_AGENTS_H
 #define SCMI_AGENTS_H
-#include <dt-bindings/scmi/stm32mp25-agents.h>
 
+#include <dt-bindings/scmi/stm32mp2-agents.h>
 
 #endif /* SCMI_AGENTS_H */

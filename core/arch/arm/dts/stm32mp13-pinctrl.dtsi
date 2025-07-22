@@ -68,19 +68,6 @@
 		};
 	};
 
-	uart4_secure_pins_a: uart4-sec-0 {
-		pins1 {
-			pinmux = <STM32_PINMUX('D', 6, AF8)>; /* UART4_TX */
-			bias-disable;
-			drive-push-pull;
-			slew-rate = <0>;
-		};
-		pins2 {
-			pinmux = <STM32_PINMUX('D', 8, AF8)>; /* UART4_RX */
-			bias-disable;
-		};
-	};
-
 	usart1_pins_a: usart1-0 {
 		pins1 {
 			pinmux = <STM32_PINMUX('C', 0, AF7)>, /* USART1_TX */

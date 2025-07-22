@@ -21,40 +21,8 @@
 #include <mod_tfm_mbx.h>
 #include <mod_tfm_smt.h>
 #include <mod_msg_smt.h>
-#include <cmsis_compiler.h>
-#define COMPILER_BARRIER() __ASM volatile("" : : : "memory")
 
-struct mutex {
-    uint8_t atomic;
-};
-
-static uint8_t atomic_add_u8(volatile uint8_t *valuePtr, int8_t delta)
-{
-    COMPILER_BARRIER();
-    uint8_t newValue;
-    do
-    {
-        newValue = __LDREXB(valuePtr) + delta;
-    } while (__STREXB(newValue, valuePtr));
-    COMPILER_BARRIER();
-    return newValue;
-}
-static void mutex_init(struct mutex *lock)
-{
-    lock->atomic = 0;
-}
-
-static void mutex_lock(struct mutex *lock)
-{
-    atomic_add_u8(&lock->atomic,1);
-    assert(lock->atomic == 1);
-}
-
-static void mutex_unlock(struct mutex *lock)
-{
-    atomic_add_u8(&lock->atomic,-1);
-    assert(lock->atomic == 0);
-}
+#include "scp_mbox.h"
 
 /* MBX device context */
 struct mbx_device_ctx {
@@ -69,8 +37,6 @@ struct mbx_device_ctx {
     } shmem_api;
 
     size_t *shm_out_size;
-
-    struct mutex lock;
 };
 
 /* MBX context */
@@ -97,10 +63,6 @@ void tfm_mbx_signal_msg_message(fwk_id_t device_id, void *in_buf,
 
         fwk_assert(fwk_id_get_module_idx(device_ctx->shmem_id) ==
                    FWK_MODULE_IDX_MSG_SMT);
-
-
-        /* Lock the channel until the message has been processed */
-        mutex_lock(&device_ctx->lock);
 
         device_ctx->shm_out_size = out_size;
         device_ctx->shmem_api.msg->signal_message(device_ctx->shmem_id,
@@ -140,9 +102,6 @@ void tfm_mbx_signal_smt_message(fwk_id_t device_id)
         fwk_assert(fwk_id_get_module_idx(device_ctx->shmem_id) ==
                    FWK_MODULE_IDX_TFM_SMT);
 
-        /* Lock the channel until the message has been processed */
-        mutex_lock(&device_ctx->lock);
-
         device_ctx->shmem_api.smt->signal_message(device_ctx->shmem_id);
     } else {
         fwk_unexpected();
@@ -156,8 +115,8 @@ static int raise_smt_interrupt(fwk_id_t channel_id)
     size_t idx = fwk_id_get_element_idx(channel_id);
     struct mbx_device_ctx *channel_ctx = &mbx_ctx.device_ctx_table[idx];
 
-    /* Release the channel as the message has been processed */
-    mutex_unlock(&channel_ctx->lock);
+    if (scp_mbox_raise(channel_ctx->config->chan_mbx))
+        fwk_unexpected();
 
     /* There should be a message in the mailbox */
     return FWK_SUCCESS;
@@ -176,10 +135,6 @@ static int raise_shm_notification(fwk_id_t channel_id, size_t size)
     struct mbx_device_ctx *channel_ctx = &mbx_ctx.device_ctx_table[idx];
 
     *channel_ctx->shm_out_size = size;
-
-
-    /* Release the channel as the message has been processed */
-    mutex_unlock(&channel_ctx->lock);
 
     return FWK_SUCCESS;
 }
@@ -217,8 +172,6 @@ static int mbx_device_init(fwk_id_t device_id, unsigned int slot_count,
     struct mbx_device_ctx *device_ctx = &mbx_ctx.device_ctx_table[elt_idx];
 
     device_ctx->config = (struct mod_tfm_mbx_channel_config*)data;
-
-    mutex_init(&device_ctx->lock);
 
     return FWK_SUCCESS;
 }

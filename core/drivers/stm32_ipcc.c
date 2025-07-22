@@ -9,6 +9,7 @@
 #include <drivers/clk_dt.h>
 #include <drivers/stm32_rif.h>
 #include <drivers/mailbox.h>
+#include <io.h>
 #include <kernel/boot.h>
 #include <kernel/delay.h>
 #include <kernel/dt.h>
@@ -98,8 +99,6 @@
  */
 #define IPCC_NB_MAX_RIF_CHAN		U(16)
 
-#define IPCC_NB_MAX_CID_SUPPORTED	U(7)
-
 enum {
 	IPCC_ITR_RXO,
 	IPCC_ITR_TXF,
@@ -137,6 +136,10 @@ struct ipcc_pdata {
 	struct itr_chip *itr_chip[IPCC_ITR_NUM];
 	size_t itr_num[IPCC_ITR_NUM];
 	struct itr_handler *itr[IPCC_ITR_NUM];
+
+	/* Restore registers value after pm resume */
+	uint32_t backup_cr;
+	uint32_t backup_mr;
 
 	/* Single mailbox user (mailbox framework) */
 	struct stm32_ipcc_mbx_data data;
@@ -284,16 +287,35 @@ static void apply_rif_config(struct ipcc_pdata *ipcc_d)
 
 static void stm32_ipcc_pm_resume(struct ipcc_pdata *ipcc)
 {
+	uint32_t cr_sec_mask = IPCC_CR_SECTXFIE | IPCC_CR_SECRXOIE;
+	uint32_t mr_sec_mask = 0U;
+
 	apply_rif_config(ipcc);
+
+	/* Restore mask of secure channels */
+	mr_sec_mask = set_field_u32(mr_sec_mask, IPCC_ALL_MR_TXF_CH_MASK,
+				    ipcc->conf_data->sec_conf[0]);
+	mr_sec_mask = set_field_u32(mr_sec_mask, IPCC_ALL_MR_RXO_CH_MASK,
+				    ipcc->conf_data->sec_conf[0]);
+	io_clrsetbits32(ipcc->lbase + IPCC_MR, mr_sec_mask,
+			mr_sec_mask & ipcc->backup_mr);
+
+	/* Restore secure control register */
+	io_clrsetbits32(ipcc->lbase + IPCC_CR, cr_sec_mask,
+			cr_sec_mask & ipcc->backup_cr);
 }
 
-static void stm32_ipcc_pm_suspend(struct ipcc_pdata *ipcc __unused)
+static void stm32_ipcc_pm_suspend(struct ipcc_pdata *ipcc)
 {
 	/*
-	 * Do nothing because IPCC forbids RIF configuration read if CID
+	 * Do not save RIF configuration because IPCC forbids to read it if CID
 	 * filtering is enabled. We'll simply restore the device tree RIF
 	 * configuration.
 	 */
+
+	/* Save control and mask register before suspend */
+	ipcc->backup_cr = io_read32(ipcc->lbase + IPCC_CR);
+	ipcc->backup_mr = io_read32(ipcc->lbase + IPCC_MR);
 }
 
 static TEE_Result
@@ -675,7 +697,7 @@ static TEE_Result parse_dt(const void *fdt, int node, struct ipcc_pdata *ipcc_d)
 	 * according to proc ID mailbox lbase. rbase mailbox are swapped.
 	 */
 	(void)fdt_read_uint32(fdt, node, "st,proc-id", &proc_id);
-	if (proc_id == 2) {
+	if (proc_id == 1) {
 		ipcc_d->lbase = ipcc_d->base + IPCC_C2CR;
 		ipcc_d->rbase = ipcc_d->base + IPCC_C1CR;
 	} else {
@@ -714,7 +736,6 @@ static TEE_Result parse_dt(const void *fdt, int node, struct ipcc_pdata *ipcc_d)
 		rif_conf = fdt32_to_cpu(cuint[i]);
 
 		stm32_rif_parse_cfg(rif_conf, ipcc_d->conf_data,
-				    IPCC_NB_MAX_CID_SUPPORTED,
 				    IPCC_NB_MAX_RIF_CHAN * 2);
 	}
 

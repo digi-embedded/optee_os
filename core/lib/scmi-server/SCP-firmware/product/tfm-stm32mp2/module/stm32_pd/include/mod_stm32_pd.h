@@ -14,6 +14,8 @@ struct mod_stm32_pd_config {
 	const char *name;
 	struct clk *clk;
 	const struct device *regu;
+	const struct firewall_spec *firewall;
+	int n_firewall;
 };
 
 #endif /* MOD_STM32_PD_H */

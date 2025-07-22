@@ -616,6 +616,8 @@ static void set_request_respond(fwk_id_t service_id, int status)
         return_values.status = (int32_t)SCMI_INVALID_PARAMETERS;
     } else if (status == FWK_E_SUPPORT) {
         return_values.status = (int32_t)SCMI_NOT_SUPPORTED;
+    } else if (status == FWK_E_ACCESS) {
+        return_values.status = (int32_t)SCMI_DENIED;
     } else if (status != FWK_SUCCESS) {
         return_values.status = (int32_t)SCMI_GENERIC_ERROR;
     } else {
@@ -1754,6 +1756,26 @@ static int scmi_clock_get_scmi_protocol_id(fwk_id_t protocol_id,
     return FWK_SUCCESS;
 }
 
+#ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
+/*
+ * Special case to support OSTLv4/v5 duty-cycle requests:
+ * based on input message size, distinguish standard
+ * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
+ * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
+ */
+static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
+              sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p));
+
+/*
+ * Special case to support OSTLv4/v5 duty-cycle requests:
+ * based on input message size, distinguish standard
+ * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
+ * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
+ */
+static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
+              sizeof(struct scmi_clock_ostl_round_rate_get_a2p));
+#endif /* CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT */
+
 static int scmi_clock_message_handler(fwk_id_t protocol_id, fwk_id_t service_id,
     const uint32_t *payload, size_t payload_size, unsigned int message_id)
 {
@@ -1782,29 +1804,11 @@ static int scmi_clock_message_handler(fwk_id_t protocol_id, fwk_id_t service_id,
 
 #ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
     case MOD_SCMI_CLOCK_DUTY_CYCLE_GET:
-        /*
-         * Special case to support OSTLv4/v5 duty-cycle requests:
-         * based on input message size, distinguish standard
-         * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
-         * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
-         */
-        static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
-                      sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p));
-
         if (payload_size == sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p))
             return scmi_clock_ostl_duty_cycle_get_handler(service_id, payload);
         break;
 
     case MOD_SCMI_CLOCK_ROUND_RATE_GET:
-        /*
-         * Special case to support OSTLv4/v5 duty-cycle requests:
-         * based on input message size, distinguish standard
-         * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
-         * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
-         */
-        static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
-                       sizeof(struct scmi_clock_ostl_round_rate_get_a2p));
-
         if (payload_size == sizeof(struct scmi_clock_ostl_round_rate_get_a2p))
             return scmi_clock_ostl_round_rate_get_handler(service_id, payload);
         break;

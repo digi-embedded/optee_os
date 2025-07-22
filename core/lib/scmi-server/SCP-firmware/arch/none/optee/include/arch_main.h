@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <tee_api_types.h>
 
 /*!
  * \brief Initialize the architecture.
@@ -44,5 +45,11 @@ extern void scmi_process_mbx_smt(unsigned int id);
 
 extern void scmi_process_mbx_msg(unsigned int id, void *in_buf, size_t in_size,
                                  void *out_buf, size_t *out_size);
+
+/*!
+ * \brief Convert a TEE_Result code into a SCP-firmware framework result code.
+ *
+ */
+int scmi_tee_result_to_fwk_status(TEE_Result res);
 
 #endif /* ARCH_MAIN_H */

@@ -106,6 +106,10 @@
 #define RIFSC_RIMC_MSEC_MASK		BIT(8)
 #define RIFSC_RIMC_MPRIV_MASK		BIT(9)
 
+#define _RIF_FLD_GET(field, value)	(((uint32_t)(value) & \
+					  (field ## _MASK)) >>\
+					 (field ## _SHIFT))
+
 struct rifsc_driver_data {
 	uint32_t version;
 	uint8_t nb_rimu;
@@ -491,7 +495,6 @@ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
 	uintptr_t cidcfgr_offset = _OFFSET_PERX_CIDCFGR * risup->id;
 	uintptr_t offset = sizeof(uint32_t) * (risup->id / _PERIPH_IDS_PER_REG);
 	uint32_t shift = risup->id % _PERIPH_IDS_PER_REG;
-	TEE_Result res = TEE_ERROR_GENERIC;
 
 	if (!risup || risup->id >= drv_data->nb_risup)
 		return TEE_ERROR_BAD_PARAMETERS;
@@ -518,34 +521,6 @@ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
 			io_setbits32_stm32shregs(pdata->base +
 						 _RIFSC_RISC_RCFGLOCKR0 +
 						 offset, BIT(shift));
-		}
-	}
-
-	/*
-	 * Take semaphore if the resource is in semaphore mode
-	 * and secured.
-	 */
-	if (SEM_MODE_INCORRECT(risup->cid_attr) ||
-	    !(io_read32(pdata->base + _RIFSC_RISC_SECCFGR0 + offset) &
-	      BIT(shift))) {
-		res = stm32_rif_release_semaphore(pdata->base +
-						  _RIFSC_RISC_PER0_SEMCR +
-						  cidcfgr_offset,
-						  MAX_CID_SUPPORTED);
-		if (res) {
-			EMSG("Couldn't release semaphore for resource %u",
-			     risup->id);
-			return TEE_ERROR_ACCESS_DENIED;
-		}
-	} else {
-		res = stm32_rif_acquire_semaphore(pdata->base +
-						  _RIFSC_RISC_PER0_SEMCR +
-						  cidcfgr_offset,
-						  MAX_CID_SUPPORTED);
-		if (res) {
-			EMSG("Couldn't acquire semaphore for resource %u",
-			     risup->id);
-			return TEE_ERROR_ACCESS_DENIED;
 		}
 	}
 
@@ -716,45 +691,6 @@ static TEE_Result stm32_risal_setup(struct rifsc_platdata *pdata)
 }
 #endif /* defined(CFG_STM32MP25) */
 
-TEE_Result stm32_rifsc_reconfigure_risup(unsigned int risup_id,
-					 unsigned int cid,
-					 bool sec, bool priv, bool cfen)
-{
-	unsigned int offset = sizeof(uint32_t) *
-			      (risup_id / _PERIPH_IDS_PER_REG);
-	TEE_Result res = TEE_ERROR_GENERIC;
-	struct risup_cfg *risup = NULL;
-
-	if (risup_id > rifsc_pdata.drv_data->nb_risup ||
-	    cid > MAX_CID_SUPPORTED)
-		return TEE_ERROR_BAD_PARAMETERS;
-
-	risup = &rifsc_pdata.risup[risup_id];
-
-	if (io_read32(rifsc_pdata.base + _RIFSC_RISC_RCFGLOCKR0 + offset) &
-	    BIT(risup_id % _PERIPH_IDS_PER_REG)) {
-		DMSG("RIMU configuration is locked");
-		return TEE_ERROR_ACCESS_DENIED;
-	}
-
-	risup->cid_attr = cid << RIFSC_RISC_CIDCFGR_SCID_SHIFT;
-	if (cfen)
-		risup->cid_attr |= RIFSC_RISC_CIDCFGR_CFEN_MASK;
-	else
-		risup->cid_attr &= ~RIFSC_RISC_CIDCFGR_CFEN_MASK;
-
-	risup->sec = sec;
-	risup->priv = priv;
-
-	res = stm32_risup_cfg(&rifsc_pdata, risup);
-	if (res) {
-		EMSG("RISUP %u reconfiguration error", risup_id);
-		return res;
-	}
-
-	return TEE_SUCCESS;
-}
-
 bool stm32_rifsc_cid_is_enabled(unsigned int  rifc_id)
 {
 	struct io_pa_va rifsc_addr = { .pa = RIFSC_BASE };
@@ -832,9 +768,10 @@ static TEE_Result stm32_rifsc_check_access(struct firewall_query *firewall)
 		return TEE_SUCCESS;
 
 	if ((cidcfgr & _CIDCFGR_SEMEN &&
-	     !SEM_EN_AND_OK(cidcfgr, cid_to_check)) ||
+	     !stm32_rif_semaphore_enabled_and_ok(cidcfgr, cid_to_check)) ||
 	    (!(cidcfgr & _CIDCFGR_SEMEN) &&
-	     !SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, cid_to_check)))
+	     !stm32_rif_scid_ok(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK,
+				cid_to_check)))
 		return TEE_ERROR_BAD_PARAMETERS;
 
 	return TEE_SUCCESS;
@@ -880,7 +817,7 @@ static TEE_Result stm32_rifsc_acquire_access(struct firewall_query *firewall)
 		return TEE_SUCCESS;
 
 	if (cidcfgr & _CIDCFGR_SEMEN) {
-		if (!SEM_EN_AND_OK(cidcfgr, RIF_CID1))
+		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
 			return TEE_ERROR_BAD_PARAMETERS;
 
 		/* Take the semaphore, static CID is irrelevant here */
@@ -890,7 +827,7 @@ static TEE_Result stm32_rifsc_acquire_access(struct firewall_query *firewall)
 						   MAX_CID_SUPPORTED);
 	}
 
-	if (!SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, RIF_CID1))
+	if (!stm32_rif_scid_ok(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, RIF_CID1))
 		return TEE_ERROR_ACCESS_DENIED;
 
 	return TEE_SUCCESS;
@@ -966,7 +903,7 @@ static void stm32_rifsc_release_access(struct firewall_query *firewall)
 			    _OFFSET_PERX_CIDCFGR * id);
 
 	/* Only thing possible is to release a semaphore taken by OP-TEE CID */
-	if (SEM_EN_AND_OK(cidcfgr, RIF_CID1))
+	if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
 		if (stm32_rif_release_semaphore(rifsc_base +
 						_RIFSC_RISC_PER0_SEMCR +
 						id * _OFFSET_PERX_CIDCFGR,
@@ -1024,7 +961,9 @@ static TEE_Result stm32_rifsc_sem_pm_resume(void)
 		risup->lock = (bool)(lockcfgr & BIT(perih_offset));
 
 		/* Acquire available appropriate semaphores */
-		if (SEM_MODE_INCORRECT(risup->cid_attr) || !risup->pm_sem)
+		if (!stm32_rif_semaphore_enabled_and_ok(risup->cid_attr,
+							RIF_CID1) ||
+		    !risup->pm_sem)
 			continue;
 
 		res = stm32_rif_acquire_semaphore(rifsc_pdata.base +

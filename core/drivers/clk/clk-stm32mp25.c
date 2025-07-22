@@ -12,6 +12,7 @@
 #include <drivers/stm32mp25_rcc.h>
 #include <dt-bindings/clock/stm32mp25-clks.h>
 #include <dt-bindings/clock/stm32mp25-clksrc.h>
+#include <dt-bindings/soc/stm32mp25-rifsc.h>
 #include <initcall.h>
 #include <io.h>
 #include <kernel/boot.h>
@@ -95,8 +96,6 @@
 
 #define RCC_NB_RIF_RES			U(114)
 #define RCC_NB_CONFS			DIV_ROUND_UP(RCC_NB_RIF_RES, 32)
-
-#define RCC_NB_MAX_CID_SUPPORTED	U(7)
 
 /* Register: RCC_RxCIDCFGR */
 #define RCC_CIDCFGR_CFEN		BIT(0)
@@ -197,6 +196,7 @@ struct stm32_clk_opp_cfg {
 
 struct stm32_clk_opp_dt_cfg {
 	struct stm32_clk_opp_cfg cpu1_opp[MAX_OPP];
+	struct stm32_clk_opp_cfg gpu_opp[MAX_OPP];
 };
 
 struct stm32_clk_platdata {
@@ -205,6 +205,7 @@ struct stm32_clk_platdata {
 	struct stm32_osci_dt_cfg *osci;
 	uint32_t npll;
 	struct stm32_pll_dt_cfg *pll;
+	struct stm32_pll_dt_cfg *pll3_current_opp;
 	struct stm32_clk_opp_dt_cfg *opp;
 	uint32_t nbusclk;
 	uint32_t *busclk;
@@ -640,7 +641,7 @@ static const struct gate_cfg gates_mp25[GATE_NB] = {
 	GATE_CFG(GATE_USB3DR,		RCC_USB3DRCFGR,		1,	0),
 	GATE_CFG(GATE_USB3PCIEPHY,	RCC_USB3PCIEPHYCFGR,	1,	0),
 	GATE_CFG(GATE_PCIE,		RCC_PCIECFGR,		1,	0),
-	GATE_CFG(GATE_USBTC,		RCC_USBTCCFGR,		1,	0),
+	GATE_CFG(GATE_USBTC,		RCC_UCPDCFGR,		1,	0),
 	GATE_CFG(GATE_ETHSWMAC,		RCC_ETHSWCFGR,		1,	0),
 	GATE_CFG(GATE_ETHSW,		RCC_ETHSWCFGR,		5,	0),
 	GATE_CFG(GATE_ETHSWREF,		RCC_ETHSWCFGR,		21,	0),
@@ -1363,6 +1364,10 @@ static int stm32_clk_parse_fdt_all_opp(const void *fdt, int node,
 	if (ret < 0)
 		return ret;
 
+	ret = stm32_clk_parse_fdt_opp(fdt, node, "st,ck_gpu", opp->gpu_opp);
+	if (ret < 0)
+		return ret;
+
 	return 0;
 }
 
@@ -1414,14 +1419,19 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
 	pdata->rcc_base = stm32_rcc_base();
 
 	cuint = fdt_getprop(fdt, node, "st,protreg", &lenp);
-	if (!cuint)
-		panic("No RIF configuration");
+	if (lenp < 0) {
+		if (lenp != -FDT_ERR_NOTFOUND)
+			return lenp;
+
+		lenp = 0;
+		DMSG("No RIF configuration available");
+	}
 
 	pdata->nb_res = (unsigned int)(lenp / sizeof(uint32_t));
+
 	assert(pdata->nb_res <= RCC_NB_RIF_RES);
 
-	pdata->conf_data.cid_confs = calloc(RCC_NB_RIF_RES,
-					    sizeof(uint32_t));
+	pdata->conf_data.cid_confs = calloc(RCC_NB_RIF_RES, sizeof(uint32_t));
 	pdata->conf_data.sec_conf = calloc(RCC_NB_CONFS, sizeof(uint32_t));
 	pdata->conf_data.priv_conf = calloc(RCC_NB_CONFS, sizeof(uint32_t));
 	pdata->conf_data.lock_conf = calloc(RCC_NB_CONFS, sizeof(uint32_t));
@@ -1436,7 +1446,6 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
 
 		stm32_rif_parse_cfg(rif_conf,
 				    &pdata->conf_data,
-				    RCC_NB_MAX_CID_SUPPORTED,
 				    RCC_NB_RIF_RES);
 	}
 
@@ -1607,6 +1616,7 @@ static void clk_stm32_debug_display_ker_dt_cfg(struct clk_stm32_priv *priv)
 }
 
 static void clk_stm32_debug_display_opp_cfg(const char *opp_name,
+					    int pll_id,
 					    struct stm32_clk_opp_cfg *opp_cfg)
 {
 	unsigned int i = 0;
@@ -1617,9 +1627,9 @@ static void clk_stm32_debug_display_opp_cfg(const char *opp_name,
 		if (opp_cfg->frq == 0UL || opp_cfg->frq == UINT32_MAX)
 			break;
 
-		printf("frequency = %"PRIu32, opp_cfg->frq);
+		printf("frequency = %"PRIu32": ", opp_cfg->frq);
 
-		clk_stm32_debug_display_pll_cfg(PLL1_ID, &opp_cfg->pll_cfg);
+		clk_stm32_debug_display_pll_cfg(pll_id, &opp_cfg->pll_cfg);
 
 		opp_cfg++;
 	}
@@ -1632,7 +1642,8 @@ static void clk_stm32_debug_display_opp_dt_cfg(struct clk_stm32_priv *priv)
 	struct stm32_clk_platdata *pdata = priv->pdata;
 	struct stm32_clk_opp_dt_cfg *opp = pdata->opp;
 
-	clk_stm32_debug_display_opp_cfg("st,ck_cpu1", opp->cpu1_opp);
+	clk_stm32_debug_display_opp_cfg("st,ck_cpu1", PLL1_ID, opp->cpu1_opp);
+	clk_stm32_debug_display_opp_cfg("ck_gpu", PLL3_ID, opp->gpu_opp);
 }
 
 static void clk_stm32_debug_display_others_dt_cfg(struct clk_stm32_priv *priv)
@@ -1900,6 +1911,15 @@ static int clk_stm32_pll_set_mux(struct clk_stm32_priv *priv __unused,
 	return 0;
 }
 
+static int clk_stm32_pll_check_mux(struct clk_stm32_priv *priv __unused,
+				   uint32_t src)
+{
+	int mux = (src & MUX_ID_MASK) >> MUX_ID_SHIFT;
+	int sel = (src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+
+	return stm32_mux_get_parent(mux) != (size_t)sel;
+}
+
 static int clk_stm32_pll1_init(struct clk_stm32_priv *priv,
 			       int pll_idx __unused,
 			       struct stm32_pll_dt_cfg *pll_conf)
@@ -1915,7 +1935,11 @@ static int clk_stm32_pll1_init(struct clk_stm32_priv *priv,
 
 	stm32mp2_a35_ss_on_bypass();
 
-	ret = clk_stm32_pll_set_mux(priv, pll_conf->src);
+	if (stm32_rcc_has_access_by_id(RCC_RIF_PLL4_TO_8))
+		ret = clk_stm32_pll_set_mux(priv, pll_conf->src);
+	else
+		ret = clk_stm32_pll_check_mux(priv, pll_conf->src);
+
 	if (ret != 0)
 		panic();
 
@@ -2082,6 +2106,41 @@ static int wait_xbar_sts(uint16_t channel)
 	return 0;
 }
 
+static TEE_Result flexclkgen_search_config(uint16_t channel,
+					   unsigned int *clk_src,
+					   unsigned int *prediv,
+					   unsigned int *findiv)
+{
+	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	unsigned int flex_id = U(0);
+	uint32_t dt_cfg = U(0);
+	uint32_t i = U(0);
+
+	assert(clk_src && prediv && findiv);
+
+	/*
+	 * pdata->flexgen is the array of all the flexgen configuration from
+	 * the device tree.
+	 * The binding does not enforce the description of all flexgen nor
+	 * the order it which they are listed.
+	 */
+	for (i = 0; i < pdata->nflexgen; i++) {
+		dt_cfg = pdata->flexgen[i];
+
+		flex_id = (dt_cfg & FLEX_ID_MASK) >> FLEX_ID_SHIFT;
+		if (flex_id == channel) {
+			*clk_src = (dt_cfg & FLEX_SEL_MASK) >> FLEX_SEL_SHIFT;
+			*prediv = (dt_cfg & FLEX_PDIV_MASK) >> FLEX_PDIV_SHIFT;
+			*findiv = (dt_cfg & FLEX_FDIV_MASK) >> FLEX_FDIV_SHIFT;
+
+			return TEE_SUCCESS;
+		}
+	}
+
+	return TEE_ERROR_ITEM_NOT_FOUND;
+}
+
 static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
 				      unsigned int prediv, unsigned int findiv)
 {
@@ -2143,7 +2202,7 @@ static int stm32mp2_clk_flexgen_configure(struct clk_stm32_priv *priv)
 		channel = (cmd_data & FLEX_ID_MASK) >> FLEX_ID_SHIFT;
 
 		/*
-		 * Skip ck_ker_stgen configuration, will be done by
+		 * Skip ck_ker_stgen configuration, will be done when enable by
 		 * stgen driver.
 		 */
 		if (channel == FLEX_STGEN)
@@ -2215,14 +2274,20 @@ static int stm32_clk_configure_mux(struct clk_stm32_priv *priv __unused,
 	bool sem_taken = false;
 	int ret = 0;
 
-	if (tab_mux_rifsc[mux].is_rifsc && SEM_EN_AND_OK(cidcfgr, RIF_CID1)) {
-		if (stm32_rif_acquire_semaphore(rifsc_base +
-						_RIFSC_RISC_PER0_SEMCR +
-						per_offset,
-						MAX_CID_SUPPORTED))
-			return -1;
+	if (tab_mux_rifsc[mux].is_rifsc) {
+		if ((cidcfgr & _CIDCFGR_CFEN) &&
+		    !stm32_rif_scid_ok(cidcfgr, _CIDCRGR_SCID_MASK, RIF_CID1))
+			return 0;
 
-		sem_taken = true;
+		if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1)) {
+			if (stm32_rif_acquire_semaphore(rifsc_base +
+							_RIFSC_RISC_PER0_SEMCR +
+							per_offset,
+							MAX_CID_SUPPORTED))
+				return -1;
+
+			sem_taken = true;
+		}
 	}
 
 	if (stm32_mux_set_parent(mux, sel))
@@ -2478,6 +2543,30 @@ static const struct clk_ops clk_stm32_oscillator_msi_ops = {
 	.set_rate	= clk_stm32_msi_set_rate,
 	.save_context	= clk_stm32_pm_save_rate,
 	.restore_context = clk_stm32_osc_msi_pm_restore,
+};
+
+/* Clock with no ops, only used as parent for flexgen selection */
+static const struct clk_ops clk_stm32_no_ops = {
+};
+
+static TEE_Result clk_stm32_osc_ker_enable(struct clk *clk)
+{
+	if (stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
+		return clk_stm32_gate_enable(clk);
+
+	return TEE_SUCCESS;
+}
+
+static void clk_stm32_osc_ker_disable(struct clk *clk)
+{
+	if (stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
+		clk_stm32_gate_disable(clk);
+}
+
+static const struct clk_ops clk_stm32_osc_ker_ops = {
+	.enable		= clk_stm32_osc_ker_enable,
+	.disable	= clk_stm32_osc_ker_disable,
+	.is_enabled	= clk_stm32_gate_is_enabled,
 };
 
 static TEE_Result clk_stm32_hse_div_set_rate(struct clk *clk,
@@ -2766,27 +2855,50 @@ static const struct clk_ops clk_stm32_pll_ops = {
 	.restore_context = clk_stm32_pll_pm_restore,
 };
 
+static TEE_Result clk_stm32_pll3_set_rate(struct clk *clk __unused,
+					  unsigned long rate,
+					  unsigned long parent_rate __unused)
+{
+	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	struct stm32_clk_opp_cfg *opp = NULL;
+
+	opp = clk_stm32_get_opp_config(pdata->opp->gpu_opp, rate);
+	if (!opp) {
+		EMSG("OPP for %ld rate not found", rate);
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	}
+
+	pdata->pll3_current_opp = &opp->pll_cfg;
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
 {
 	struct clk_stm32_pll_cfg *cfg = clk->priv;
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+	struct stm32_clk_platdata *pdata = priv->pdata;
 	struct stm32_pll_dt_cfg *pll_conf = clk_stm32_pll_get_pdata(PLL3_ID);
 	TEE_Result res = TEE_SUCCESS;
 	struct clk *parent = NULL;
 	size_t pidx = 0;
 
+	if (pdata->pll3_current_opp)
+		pll_conf = pdata->pll3_current_opp;
+
 	/* ck_icn_p_gpu activate */
 	stm32_gate_enable(GATE_GPU);
 
 	if (clk_stm32_pll_init(priv, PLL3_ID, pll_conf)) {
-		stm32_gate_disable(GATE_GPU);
-		return TEE_ERROR_GENERIC;
+		res = TEE_ERROR_GENERIC;
+		goto out;
 	}
 
 	res = stm32_gate_rdy_enable(cfg->gate_id);
 	if (res) {
 		EMSG("%s timeout", clk_get_name(clk));
-		return res;
+		goto out;
 	}
 
 	/* Update parent */
@@ -2794,8 +2906,14 @@ static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
 	parent = clk_get_parent_by_index(clk, pidx);
 
 	res = clk_reparent(clk, parent);
-	if (res)
+	if (res) {
 		EMSG("fail to reparent PLL3");
+		clk_stm32_pll_disable(clk);
+	}
+
+out:
+	if (res)
+		stm32_gate_disable(GATE_GPU);
 
 	return res;
 }
@@ -2812,6 +2930,7 @@ static const struct clk_ops clk_stm32_pll3_ops = {
 	.enable		= clk_stm32_pll3_enable,
 	.disable	= clk_stm32_pll3_disable,
 	.is_enabled	= clk_stm32_pll_is_enabled,
+	.set_rate	= clk_stm32_pll3_set_rate,
 };
 
 struct clk_stm32_flexgen_cfg {
@@ -3051,11 +3170,41 @@ static TEE_Result clk_stm32_flexgen_enable(struct clk *clk)
 {
 	struct clk_stm32_flexgen_cfg *cfg = clk->priv;
 	uintptr_t rcc_base = clk_stm32_get_rcc_base();
+	TEE_Result ret = TEE_ERROR_GENERIC;
 	uint8_t channel = cfg->flex_id;
 
-	if (stm32_rcc_has_access_by_id(cfg->flex_id))
-		io_setbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
-			     RCC_FINDIV0CFGR_FINDIV0EN);
+	if (!stm32_rcc_has_access_by_id(channel))
+		return TEE_SUCCESS;
+
+	/*
+	 * Configure flexgen of STGEN since it has been skipped during
+	 * flexgen configuration.
+	 */
+	if (channel == FLEX_STGEN) {
+		struct clk *stgen_src = NULL;
+		unsigned int clk_src = U(0);
+		unsigned int pdiv = U(0);
+		unsigned int fdiv = U(0);
+
+		ret = flexclkgen_search_config(channel, &clk_src, &pdiv, &fdiv);
+		if (ret) {
+			EMSG("Error %#x when getting STGEN flexgen conf", ret);
+			return ret;
+		}
+
+		flexclkgen_config_channel(channel, clk_src, pdiv, fdiv);
+
+		/* Update parent */
+		stgen_src = clk_get_parent_by_index(clk, clk_src);
+		ret = clk_reparent(clk, stgen_src);
+		if (ret) {
+			EMSG("Failed to configured the STGEN flexgen");
+			return ret;
+		}
+	}
+
+	io_setbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
+		     RCC_FINDIV0CFGR_FINDIV0EN);
 
 	return TEE_SUCCESS;
 }
@@ -3156,8 +3305,19 @@ static TEE_Result clk_cpu1_determine_rate(struct clk *clk,
 	return TEE_SUCCESS;
 }
 
+static TEE_Result clk_cpu1_set_rate(struct clk *clk __unused,
+				    unsigned long rate,
+				    unsigned long parent_rate)
+{
+	if (rate == parent_rate)
+		return TEE_SUCCESS;
+
+	return TEE_ERROR_GENERIC;
+}
+
 static const struct clk_ops clk_stm32_cpu1_ops = {
 	.determine_rate = clk_cpu1_determine_rate,
+	.set_rate	= clk_cpu1_set_rate,
 	.get_parent	= clk_cpu1_get_parent,
 };
 
@@ -3398,16 +3558,23 @@ static const struct clk_ops ck_timer_ops = {
 		.parents = { NULL },\
 	}
 
-#define STM32_OSC_KER(_name, _flags, _gate_id)\
+#define STM32_OSC_KER(_name)\
 	struct clk _name = {\
-		.ops = &clk_stm32_gate_ops,\
+		.ops = &clk_stm32_no_ops,\
+		.name = #_name,\
+		.num_parents = 1,\
+		.parents = { NULL },\
+	}
+
+#define STM32_OSC_KERON(_name, _parent, _gate_id)\
+	struct clk _name = {\
+		.ops = &clk_stm32_osc_ker_ops,\
 		.priv = &(struct clk_stm32_gate_cfg){\
 			.gate_id = (_gate_id),\
 		},\
 		.name = #_name,\
-		.flags = (_flags),\
 		.num_parents = 1,\
-		.parents = { NULL },\
+		.parents = { (_parent) },\
 	}
 
 #define STM32_HSE_DIV2(_name, _parent, _flags, _gate_id)\
@@ -3544,9 +3711,15 @@ static STM32_OSC_MSI(ck_msi, 0, GATE_MSI);
 static STM32_OSC(ck_lsi, 0, GATE_LSI);
 static STM32_OSC(ck_lse, 0, GATE_LSE);
 
-static STM32_OSC_KER(ck_hsi_ker, 0, GATE_HSI_KER);
-static STM32_OSC_KER(ck_hse_ker, 0, GATE_HSE_KER);
-static STM32_OSC_KER(ck_msi_ker, 0, GATE_MSI_KER);
+/* OSC KER is an alternate source of flexgen (dynamically gated) */
+static STM32_OSC_KER(ck_hsi_ker);
+static STM32_OSC_KER(ck_hse_ker);
+static STM32_OSC_KER(ck_msi_ker);
+
+/* OSC_KERON is OSC KER gated by KERON for low power */
+static STM32_OSC_KERON(ck_hsi_keron, &ck_hsi_ker, GATE_HSI_KER);
+static STM32_OSC_KERON(ck_hse_keron, &ck_hse_ker, GATE_HSE_KER);
+static STM32_OSC_KERON(ck_msi_keron, &ck_msi_ker, GATE_MSI_KER);
 
 static STM32_HSE_DIV2(ck_hse_div2, &ck_hse, 0, GATE_HSEDIV2);
 static STM32_HSE_RTC(ck_hse_rtc, &ck_hse, 0, DIV_RTC);
@@ -3650,7 +3823,6 @@ static STM32_FLEXGEN(ck_flexgen_63, 0, 63);
 static struct clk ck_cpu1 = {
 	.ops		= &clk_stm32_cpu1_ops,
 	.name		= "ck_cpu1",
-	.flags		= CLK_SET_RATE_PARENT,
 	.num_parents	= 2,
 	.parents	= { &ck_pll1, &ck_flexgen_63 },
 };
@@ -3720,11 +3892,11 @@ static RIF_GATE(ck_icn_p_hpdma3, &ck_icn_ls_mcu, 0, GATE_HPDMA3,
 		RCC_RIF_HPDMA3);
 static RIF_GATE(ck_icn_p_lpdma, &ck_icn_ls_mcu, 0, GATE_LPDMA,
 		RCC_RIF_LPDMA);
-static RIF_GATE(ck_icn_p_lpdma_am, &ck_msi_ker, 0, GATE_LPDMAAM,
+static RIF_GATE(ck_icn_p_lpdma_am, &ck_icn_p_lpdma, 0, GATE_LPDMAAM,
 		RCC_RIF_LPDMA);
 static RIF_GATE(ck_icn_p_ipcc1, &ck_icn_ls_mcu, 0, GATE_IPCC1, RCC_RIF_IPCC1);
 static RIF_GATE(ck_icn_p_ipcc2, &ck_icn_ls_mcu, 0, GATE_IPCC2, RCC_RIF_IPCC2);
-static RIF_GATE(ck_icn_p_ipcc2_am, &ck_icn_ls_mcu, 0, GATE_IPCC2AM,
+static RIF_GATE(ck_icn_p_ipcc2_am, &ck_icn_p_ipcc2, 0, GATE_IPCC2AM,
 		RCC_RIF_IPCC2);
 static RIF_GATE(ck_icn_p_hsem, &ck_icn_ls_mcu, 0, GATE_HSEM, RCC_RIF_HSEM);
 static RIF_GATE(ck_icn_p_gpioa, &ck_icn_ls_mcu, 0, GATE_GPIOA, RCC_RIF_GPIOA);
@@ -3739,9 +3911,11 @@ static RIF_GATE(ck_icn_p_gpioi, &ck_icn_ls_mcu, 0, GATE_GPIOI, RCC_RIF_GPIOI);
 static RIF_GATE(ck_icn_p_gpioj, &ck_icn_ls_mcu, 0, GATE_GPIOJ, RCC_RIF_GPIOJ);
 static RIF_GATE(ck_icn_p_gpiok, &ck_icn_ls_mcu, 0, GATE_GPIOK, RCC_RIF_GPIOK);
 static RIF_GATE(ck_icn_p_gpioz, &ck_icn_ls_mcu, 0, GATE_GPIOZ, RCC_RIF_GPIOZ);
-static RIF_GATE(ck_icn_p_gpioz_am, &ck_msi_ker, 0, GATE_GPIOZAM, RCC_RIF_GPIOZ);
+static RIF_GATE(ck_icn_p_gpioz_am, &ck_icn_p_gpioz, 0, GATE_GPIOZAM,
+		RCC_RIF_GPIOZ);
 static RIF_GATE(ck_icn_p_rtc, &ck_icn_ls_mcu, 0, GATE_RTC, RCC_RIF_RTC_TAMP);
-static RIF_GATE(ck_icn_p_rtc_am, &ck_msi_ker, 0, GATE_RTCAM, RCC_RIF_RTC_TAMP);
+static RIF_GATE(ck_icn_p_rtc_am, &ck_icn_p_rtc, 0, GATE_RTCAM,
+		RCC_RIF_RTC_TAMP);
 static RIF_COMPOSITE(ck_rtc, 4, PARENT(&ck_off, &ck_lse, &ck_lsi, &ck_hse_rtc),
 		     0, GATE_RTCCK, NO_DIV, MUX_RTC, RCC_RIF_RTC_TAMP);
 static RIF_GATE(ck_icn_p_bsec, &ck_icn_apb3, 0, GATE_BSEC, RCC_RIF_BSEC);
@@ -3952,7 +4126,7 @@ static STM32_GATE(ck_ker_eth1ptp, &ck_flexgen_56, 0, GATE_ETH1);
 static STM32_GATE(ck_ker_eth2ptp, &ck_flexgen_56, 0, GATE_ETH2);
 static STM32_GATE(ck_ker_usb2phy2, &ck_flexgen_58, 0, GATE_USB3DR);
 static STM32_GATE(ck_icn_m_gpu, &ck_flexgen_59, 0, GATE_GPU);
-static STM32_GATE(ck_ker_gpu, &ck_pll3, 0, GATE_GPU);
+static STM32_GATE(ck_ker_gpu, &ck_pll3, CLK_SET_RATE_PARENT, GATE_GPU);
 static STM32_GATE(ck_ker_ethswref, &ck_flexgen_60, 0, GATE_ETHSWREF);
 
 static STM32_GATE(ck_ker_eth1stp, &ck_icn_ls_mcu, 0, GATE_ETH1STP);
@@ -4000,6 +4174,9 @@ enum {
 	TXBYTECLK,
 	CK_OBSER0,
 	CK_OBSER1,
+	CK_HSI_KER,
+	CK_HSE_KER,
+	CK_MSI_KER,
 	STM32MP25_ALL_CLK_NB
 };
 
@@ -4017,9 +4194,10 @@ static struct clk *stm32mp25_clk_provided[STM32MP25_ALL_CLK_NB] = {
 	[LSI_CK]		= &ck_lsi,
 	[LSE_CK]		= &ck_lse,
 
-	[HSI_KER_CK]		= &ck_hsi_ker,
-	[HSE_KER_CK]		= &ck_hse_ker,
-	[MSI_KER_CK]		= &ck_msi_ker,
+	/* Force oscillator for low-power mode with KERON */
+	[HSI_KER_CK]		= &ck_hsi_keron,
+	[HSE_KER_CK]		= &ck_hse_keron,
+	[MSI_KER_CK]		= &ck_msi_keron,
 
 	[HSE_DIV2_CK]		= &ck_hse_div2,
 
@@ -4369,6 +4547,7 @@ static struct clk *stm32mp25_clk_provided[STM32MP25_ALL_CLK_NB] = {
 	[CK_ETH2_TX]		= &ck_ker_eth2tx,
 	[CK_ETH2_RX]		= &ck_ker_eth2rx,
 
+	/* Internal clocks */
 	[CK_HSE_RTC]		= &ck_hse_rtc,
 	[CK_OBSER0]		= &ck_obser0,
 	[CK_OBSER1]		= &ck_obser1,
@@ -4376,34 +4555,34 @@ static struct clk *stm32mp25_clk_provided[STM32MP25_ALL_CLK_NB] = {
 	[I2SCKIN]		= &i2sckin,
 	[SPDIFSYMB]		= &spdifsymb,
 	[TXBYTECLK]		= &txbyteclk,
+	[CK_HSI_KER]		= &ck_hsi_ker,
+	[CK_HSE_KER]		= &ck_hse_ker,
+	[CK_MSI_KER]		= &ck_msi_ker,
 };
-
-static void clk_stm32_set_flexgen_as_critical(void)
-{
-	uint32_t i = 0;
-
-	for (i = 0; i < XBAR_CHANNEL_NB; i++) {
-		unsigned long clock_id = CK_ICN_HS_MCU + i;
-		struct clk *clk = NULL;
-
-		if (!stm32_rcc_has_access_by_id(i))
-			continue;
-
-		clk = stm32mp_rcc_clock_id_to_clk(clock_id);
-		assert(clk);
-
-		clk_enable(clk);
-	}
-}
 
 static bool clk_stm32_clock_is_critical(struct clk *clk)
 {
+
 	struct clk *clk_criticals[] = {
+#ifdef CFG_STM32_CM33TDCID
+		&ck_flexgen_63,
+		&ck_icn_p_gicv2m
+#else
 		&ck_hsi,
 		&ck_hse,
 		&ck_msi,
 		&ck_lsi,
 		&ck_lse,
+		&ck_icn_hs_mcu,
+		&ck_icn_ls_mcu,
+		&ck_icn_sdmmc,
+		&ck_icn_ddr,
+		&ck_icn_display,
+		&ck_icn_hsl,
+		&ck_icn_nic,
+		&ck_icn_vid,
+		&ck_flexgen_59,
+		&ck_flexgen_63,
 		&ck_cpu1,
 		&ck_icn_p_syscpu1,
 		&ck_icn_s_ddr,
@@ -4438,6 +4617,7 @@ static bool clk_stm32_clock_is_critical(struct clk *clk)
 		&ck_icn_p_ipcc2,
 		&ck_icn_p_gicv2m,
 		&ck_icn_p_rtc
+#endif
 	};
 	size_t i = 0;
 
@@ -4727,42 +4907,77 @@ static struct clk_stm32_priv stm32mp25_clock_data = {
 	.is_critical		= clk_stm32_clock_is_critical,
 };
 
+static TEE_Result handle_available_semaphores(void)
+{
+	struct stm32_clk_platdata *pdata = &stm32mp25_clock_pdata;
+	TEE_Result res = TEE_ERROR_GENERIC;
+	unsigned int index = 0;
+	uint32_t cidcfgr = 0;
+	unsigned int i = 0;
+
+	for (i = 0; i < RCC_NB_RIF_RES; i++) {
+		vaddr_t reg_offset = pdata->rcc_base + RCC_SEMCR(i);
+
+		index = i / 32;
+
+		if (!(BIT(i % 32) & pdata->conf_data.access_mask[index]))
+			continue;
+
+		cidcfgr = io_read32(pdata->rcc_base + RCC_CIDCFGR(i));
+
+		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+			continue;
+
+		if (!(io_read32(pdata->rcc_base + RCC_SECCFGR(index)) &
+		      BIT(i % 32))) {
+			res = stm32_rif_release_semaphore(reg_offset,
+							  MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot release semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		} else {
+			res = stm32_rif_acquire_semaphore(reg_offset,
+							  MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot acquire semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		}
+	}
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result apply_rcc_rif_config(bool is_tdcid)
 {
 	TEE_Result res = TEE_ERROR_ACCESS_DENIED;
 	struct stm32_clk_platdata *pdata = &stm32mp25_clock_pdata;
-	uint32_t cidcfgr = 0;
 	unsigned int i = 0;
 	unsigned int index = 0;
 
-	for (i = 0; i < RCC_NB_RIF_RES; i++) {
-		index = i / 32;
-		if (!(BIT(i % 32) & pdata->conf_data.access_mask[index]))
-			continue;
+	if (is_tdcid) {
+		for (i = 0; i < RCC_NB_RIF_RES; i++) {
+			index = i / 32;
+			if (!(BIT(i % 32) &
+			      pdata->conf_data.access_mask[index]))
+				continue;
 
-		/*
-		 * When TDCID, OP-TEE should be the one to set the CID filtering
-		 * configuration. Clearing previous configuration prevents
-		 * undesired events during the only legitimate configuration.
-		 */
-		if (is_tdcid)
+			/*
+			 * When TDCID, OP-TEE should be the one to set the CID
+			 * filtering configuration. Clearing previous
+			 * configuration prevents undesired events during the
+			 * only legitimate configuration.
+			 */
 			io_clrbits32(pdata->rcc_base + RCC_CIDCFGR(i),
 				     RCC_CIDCFGR_CONF_MASK);
-
-		cidcfgr = io_read32(pdata->rcc_base + RCC_CIDCFGR(i));
-
-		/* Check if the resource is in semaphore mode */
-		if (SEM_MODE_INCORRECT(cidcfgr))
-			continue;
-
-		/* If not TDCID, we want to acquire semaphores assigned to us */
-		res = stm32_rif_acquire_semaphore(pdata->rcc_base +
-						  RCC_SEMCR(i),
-						  RCC_NB_MAX_CID_SUPPORTED);
-		if (res) {
-			EMSG("Could not acquire semaphore for resource %u", i);
-			return res;
 		}
+	} else {
+		res = handle_available_semaphores();
+		if (res)
+			panic();
 	}
 
 	/* Security and privilege RIF configuration */
@@ -4787,36 +5002,6 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
 		io_clrsetbits32(pdata->rcc_base + RCC_CIDCFGR(i),
 				RCC_CIDCFGR_CONF_MASK,
 				pdata->conf_data.cid_confs[i]);
-
-		cidcfgr = io_read32(pdata->rcc_base + RCC_CIDCFGR(i));
-
-		/*
-		 * Take semaphore if the resource is in semaphore mode
-		 * and secured
-		 */
-		if (SEM_MODE_INCORRECT(cidcfgr) ||
-		    !(io_read32(pdata->rcc_base + RCC_SECCFGR(index)) &
-		      BIT(i % 32))) {
-			res =
-			stm32_rif_release_semaphore(pdata->rcc_base +
-						    RCC_SEMCR(i),
-						    RCC_NB_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Could not release semaphore for res%u",
-				     i);
-				return res;
-			}
-		} else {
-			res =
-			stm32_rif_acquire_semaphore(pdata->rcc_base +
-						    RCC_SEMCR(i),
-						    RCC_NB_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Could not acquire semaphore for res%u",
-				     i);
-				return res;
-			}
-		}
 	}
 
 	for (index = 0; index < RCC_NB_CONFS; index++) {
@@ -4824,6 +5009,10 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
 				pdata->conf_data.access_mask[index],
 				pdata->conf_data.lock_conf[index]);
 	}
+
+	res = handle_available_semaphores();
+	if (res)
+		return res;
 
 end:
 	if (IS_ENABLED(CFG_TEE_CORE_DEBUG)) {
@@ -4841,9 +5030,6 @@ end:
 		}
 	}
 
-	/* TEMPORARY: Enables all root clocks (could be used by M33) */
-	clk_stm32_set_flexgen_as_critical();
-
 	return TEE_SUCCESS;
 }
 
@@ -4856,6 +5042,9 @@ static TEE_Result stm32_rcc_rif_pm_suspend(void)
 {
 	struct stm32_clk_platdata *pdata = &stm32mp25_clock_pdata;
 	unsigned int i = 0;
+
+	if (!pdata->nb_res)
+		return TEE_SUCCESS;
 
 	for (i = 0; i < RCC_NB_RIF_RES; i++) {
 		pdata->conf_data.cid_confs[i] = io_read32(pdata->rcc_base +
@@ -4885,13 +5074,20 @@ static TEE_Result stm32_rcc_rif_pm(enum pm_op op, unsigned int pm_hint,
 	if (res)
 		return res;
 
-	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT) || !is_tdcid)
+	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
 		return TEE_SUCCESS;
 
-	if (op == PM_OP_RESUME)
-		res = stm32_rcc_rif_pm_resume();
-	else
+	if (op == PM_OP_RESUME) {
+		if (!is_tdcid)
+			res = handle_available_semaphores();
+		else
+			res = stm32_rcc_rif_pm_resume();
+	} else {
+		if (!is_tdcid)
+			return TEE_SUCCESS;
+
 		res = stm32_rcc_rif_pm_suspend();
+	}
 
 	return res;
 }
@@ -4979,20 +5175,30 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
 		if (res) {
 			EMSG("Failed on node %s with %#"PRIx32,
 			     fdt_get_name(fdt, subnode, NULL), res);
-			return res;
+			goto err;
 		}
 	}
 
+	if (IS_ENABLED(CFG_STM32_CM33TDCID)) {
+		res = handle_available_semaphores();
+		if (res)
+			return res;
+	}
+
 	rc = clk_stm32_init(priv, stm32_rcc_base());
-	if (rc)
-		return TEE_ERROR_GENERIC;
+	if (rc) {
+		res = TEE_ERROR_GENERIC;
+		goto err;
+	}
 
 	if (IS_ENABLED(CFG_STM32_CLK_DEBUG))
 		clk_stm32_debug_display_pdata();
 
 	rc = stm32mp2_init_clock_tree(priv, pdata);
-	if (rc != 0)
-		return rc;
+	if (rc != 0) {
+		res = TEE_ERROR_GENERIC;
+		goto err;
+	}
 
 	clk_stm32_init_oscillators(fdt, node);
 
@@ -5005,13 +5211,20 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
 	if (IS_ENABLED(CFG_STM32_CLK_DEBUG))
 		clk_print_tree();
 
-	res = clk_stm32_init_calib(fdt, node);
-	if (res)
-		EMSG("Calibration error init");
+	if (clk_stm32_init_calib(fdt, node))
+		panic("Calibration error init");
 
 	register_pm_core_service_cb(stm32_rcc_pm, NULL, "stm32-rcc");
 
 	return TEE_SUCCESS;
+err:
+	free(pdata->conf_data.cid_confs);
+	free(pdata->conf_data.sec_conf);
+	free(pdata->conf_data.priv_conf);
+	free(pdata->conf_data.lock_conf);
+	free(pdata->conf_data.access_mask);
+
+	return res;
 }
 
 CLK_DT_DECLARE(stm32mp25_clk, "st,stm32mp25-rcc", stm32mp2_clk_probe);

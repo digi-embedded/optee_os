@@ -7,7 +7,6 @@
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
 #include <drivers/rstctrl.h>
-#include <drivers/stm32_etzpc.h>
 #include <drivers/stm32_rng.h>
 #if defined(CFG_STM32MP15)
 #include <drivers/stm32mp_dt_bindings.h>
@@ -23,6 +22,7 @@
 #include <kernel/thread.h>
 #include <libfdt.h>
 #include <mm/core_memprot.h>
+#include <psa/crypto.h>
 #include <rng_support.h>
 #include <stdbool.h>
 #include <stm32_util.h>
@@ -39,16 +39,16 @@
 #define RNG_CR_RNGEN		BIT(2)
 #define RNG_CR_IE		BIT(3)
 #define RNG_CR_CED		BIT(5)
-#define RNG_CR_CONFIG1		GENMASK_32(11, 8)
+#define RNG_CR_CONFIG3		GENMASK_32(11, 8)
+#define RNG_CR_CONFIG3_SHIFT	U(8)
 #define RNG_CR_NISTC		BIT(12)
 #define RNG_CR_POWER_OPTIM	BIT(13)
 #define RNG_CR_CONFIG2		GENMASK_32(15, 13)
+#define RNG_CR_CONFIG2_SHIFT	U(13)
 #define RNG_CR_CLKDIV		GENMASK_32(19, 16)
 #define RNG_CR_CLKDIV_SHIFT	U(16)
-#define RNG_CR_CONFIG3		GENMASK_32(25, 20)
+#define RNG_CR_CONFIG1_SHIFT	U(20)
 #define RNG_CR_CONDRST		BIT(30)
-#define RNG_CR_ENTROPY_SRC_MASK	(RNG_CR_CONFIG1 | RNG_CR_NISTC | \
-				 RNG_CR_CONFIG2 | RNG_CR_CONFIG3)
 
 #define RNG_SR_DRDY		BIT(0)
 #define RNG_SR_CECS		BIT(1)
@@ -72,8 +72,9 @@
 #define RNG_FIFO_BYTE_DEPTH	U(16)
 #define RNG_CONF_LEN		U(3)
 
-#define RNG_CONFIG_MASK		(RNG_CR_ENTROPY_SRC_MASK | RNG_CR_CED | \
-				 RNG_CR_CLKDIV)
+#define RNG_CONFIG_MASK		(RNG_CR_CED | RNG_CR_CLKDIV)
+
+#define DT_RNG_MAX_NIST_CONFIG	U(3)
 
 struct stm32_rng_driver_data {
 	unsigned long max_noise_clk_freq;
@@ -81,6 +82,7 @@ struct stm32_rng_driver_data {
 	uint32_t cr;
 	uint32_t nscr;
 	uint32_t htcr;
+	uint32_t cr_config1_mask;
 	bool has_power_optim;
 	bool has_cond_reset;
 };
@@ -106,6 +108,12 @@ struct stm32_rng_instance {
 /* Expect at most a single RNG instance */
 static struct stm32_rng_instance *stm32_rng;
 
+static uint32_t stm32_rng_get_entropy_mask(void)
+{
+	return (RNG_CR_CONFIG3 | RNG_CR_NISTC |
+		RNG_CR_CONFIG2 | stm32_rng->ddata->cr_config1_mask);
+}
+
 static vaddr_t get_base(void)
 {
 	assert(stm32_rng);
@@ -125,9 +133,8 @@ static vaddr_t get_base(void)
  * Indeed, when SEIS is set and SECS is cleared it means RNG performed
  * the reset automatically (auto-reset).
  * 2. If SECS was set in step 1 (no auto-reset) wait for CONDRST
- * to be cleared in the RNG_CR register, then confirm that SEIS is
- * cleared in the RNG_SR register. Otherwise just clear SEIS bit in
- * the RNG_SR register.
+ * to be cleared in the RNG_CR register. Otherwise just clear SEIS bit
+ * in the RNG_SR register.
  * 3. If SECS was set in step 1 (no auto-reset) wait for SECS to be
  * cleared by RNG. The random number generation is now back to normal.
  */
@@ -164,10 +171,6 @@ static void conceal_seed_error_cond_reset(void)
 			/* Wait subsystem reset cycle completes */
 			return;
 		}
-
-		/* Check SEIS is cleared (step 2.) */
-		if (io_read32(rng_base + RNG_SR) & RNG_SR_SEIS)
-			panic();
 
 		/* Wait SECS is cleared (step 3.) */
 		if (io_read32(rng_base + RNG_SR) & RNG_SR_SECS) {
@@ -315,6 +318,7 @@ TEE_Result stm32_rng_init(void)
 	vaddr_t rng_base = get_base();
 	uint64_t timeout_ref = 0;
 	uint32_t cr_ced_mask = 0;
+	uint32_t entropy_mask = stm32_rng_get_entropy_mask();
 
 	res = enable_rng_clock();
 	if (res)
@@ -347,7 +351,7 @@ TEE_Result stm32_rng_init(void)
 		 */
 		if (!stm32_rng->rng_config)
 			stm32_rng->rng_config = io_read32(rng_base + RNG_CR) &
-						RNG_CR_ENTROPY_SRC_MASK;
+						entropy_mask;
 
 		/*
 		 * Configuration must be set in the same access that sets
@@ -355,7 +359,8 @@ TEE_Result stm32_rng_init(void)
 		 * not taken into account. CONFIGLOCK bit is always cleared at
 		 * this stage.
 		 */
-		io_clrsetbits32(rng_base + RNG_CR, RNG_CONFIG_MASK,
+		io_clrsetbits32(rng_base + RNG_CR,
+				RNG_CONFIG_MASK | entropy_mask,
 				stm32_rng->rng_config | RNG_CR_CONDRST |
 				cr_ced_mask |
 				(clock_div << RNG_CR_CLKDIV_SHIFT));
@@ -473,14 +478,22 @@ void plat_rng_init(void)
 	uint8_t seed[RNG_FIFO_BYTE_DEPTH] = { };
 
 	if (!stm32_rng) {
-		__plat_rng_init();
-		DMSG("PRNG seeded without RNG");
-		return;
-	}
+		if (IS_ENABLED(CFG_STM32_PSA_SERVICE)) {
 
+			if (psa_generate_random(seed, sizeof(seed)) !=
+			    PSA_SUCCESS)
+				panic();
+			goto init;
+		} else {
+			__plat_rng_init();
+			DMSG("PRNG seeded without RNG");
+			return;
+		}
+	}
 	if (stm32_rng_read(seed, sizeof(seed)))
 		panic();
 
+init:
 	if (crypto_rng_init(seed, sizeof(seed)))
 		panic();
 
@@ -600,6 +613,9 @@ static TEE_Result stm32_rng_parse_fdt(const void *fdt, int node)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
 	struct dt_node_info dt_rng = { };
+	const fdt32_t *cuint = NULL;
+	int len = 0;
+	uint32_t entropy_mask = stm32_rng_get_entropy_mask();
 
 	fdt_fill_device_info(fdt, &dt_rng, node);
 	if (dt_rng.reg == DT_INFO_INVALID_REG)
@@ -633,10 +649,41 @@ static TEE_Result stm32_rng_parse_fdt(const void *fdt, int node)
 	if (fdt_getprop(fdt, node, "clock-error-detect", NULL))
 		stm32_rng->clock_error = true;
 
-	stm32_rng->rng_config = stm32_rng->ddata->cr;
-	if (stm32_rng->rng_config & ~RNG_CR_ENTROPY_SRC_MASK)
+	cuint = fdt_getprop(fdt, node, "st,rng-cfg", &len);
+	if (cuint && len > 0 &&
+	    (uint32_t)len <= DT_RNG_MAX_NIST_CONFIG * sizeof(uint32_t)) {
+		uint32_t i = 0;
+		uint32_t rng_cr_config1 = stm32_rng->ddata->cr_config1_mask;
+		uint32_t cr_shift_mask[DT_RNG_MAX_NIST_CONFIG][2] = {
+			{RNG_CR_CONFIG1_SHIFT, rng_cr_config1},
+			{RNG_CR_CONFIG2_SHIFT, RNG_CR_CONFIG2},
+			{RNG_CR_CONFIG3_SHIFT, RNG_CR_CONFIG3},
+		};
+
+		stm32_rng->rng_config = 0;
+
+		for (i = 0U; i < (uint32_t)len / sizeof(uint32_t); i++) {
+			stm32_rng->rng_config |= (fdt32_to_cpu(*cuint) <<
+						  cr_shift_mask[i][0]) &
+						 cr_shift_mask[i][1];
+			cuint++;
+		}
+	} else {
+		stm32_rng->rng_config = stm32_rng->ddata->cr;
+	}
+
+	if (fdt_getprop(fdt, node, "st,rng-cfg-nist-custom", NULL))
+		stm32_rng->rng_config |= RNG_CR_NISTC;
+
+	if (stm32_rng->rng_config & ~entropy_mask)
 		panic("Incorrect entropy source configuration");
-	stm32_rng->health_test_conf = stm32_rng->ddata->htcr;
+
+	cuint = fdt_getprop(fdt, node, "st,rng-htcfg", NULL);
+	if (cuint)
+		stm32_rng->health_test_conf = fdt32_to_cpu(*cuint);
+	else
+		stm32_rng->health_test_conf = stm32_rng->ddata->htcr;
+
 	stm32_rng->noise_ctrl_conf = stm32_rng->ddata->nscr;
 	if (stm32_rng->noise_ctrl_conf & ~RNG_NSCR_MASK)
 		panic("Incorrect noise source control configuration");
@@ -679,16 +726,6 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
 	if (res)
 		goto err;
 
-#if defined(CFG_STM32MP15)
-	/*
-	 * Only STM32MP15 requires a software registering of RNG secure state
-	 */
-	if (!stm32_etzpc_check_ns_access(STM32MP1_ETZPC_RNG1_ID))
-		stm32mp_register_non_secure_periph_iomem(stm32_rng->base.pa);
-	else
-		stm32mp_register_secure_periph_iomem(stm32_rng->base.pa);
-#endif /* defined(CFG_STM32MP15) */
-
 	/* Power management implementation expects both or none are set */
 	assert(stm32_rng->ddata->has_power_optim ==
 	       stm32_rng->ddata->has_cond_reset);
@@ -716,6 +753,7 @@ static const struct stm32_rng_driver_data mp13_data[] = {
 		.nb_clock = 1,
 		.has_cond_reset = true,
 		.has_power_optim = true,
+		.cr_config1_mask = GENMASK_32(25, 20),
 		.cr = 0x00F00D00,
 		.nscr = 0x2B5BB,
 		.htcr = 0x969D,
@@ -732,21 +770,36 @@ static const struct stm32_rng_driver_data mp15_data[] = {
 };
 DECLARE_KEEP_PAGER_PM(mp15_data);
 
+static const struct stm32_rng_driver_data mp21_data[] = {
+	{
+		.max_noise_clk_freq = U(48000000),
+		.nb_clock = 2,
+		.has_cond_reset = true,
+		.has_power_optim = true,
+		.cr_config1_mask = GENMASK_32(27, 20),
+		.cr = 0x00800D00,
+		.nscr = 0x01FF,
+		.htcr = 0xAAC7,
+	},
+};
+
 static const struct stm32_rng_driver_data mp25_data[] = {
 	{
 		.max_noise_clk_freq = U(48000000),
 		.nb_clock = 2,
 		.has_cond_reset = true,
 		.has_power_optim = true,
-		.cr = 0x00F00D00,
-		.nscr = 0x2B5BB,
-		.htcr = 0x969D,
+		.cr_config1_mask = GENMASK_32(27, 20),
+		.cr = 0x08F01E00,
+		.nscr = 0x2E649,
+		.htcr = 0x6688,
 	},
 };
 
 static const struct dt_device_match rng_match_table[] = {
 	{ .compatible = "st,stm32-rng", .compat_data = &mp15_data },
 	{ .compatible = "st,stm32mp13-rng", .compat_data = &mp13_data },
+	{ .compatible = "st,stm32mp21-rng", .compat_data = &mp21_data },
 	{ .compatible = "st,stm32mp25-rng", .compat_data = &mp25_data },
 	{ }
 };

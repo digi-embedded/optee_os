@@ -15,6 +15,8 @@
 #include <mod_psu_optee_regulator.h>
 #include <mod_scmi_std.h>
 
+#include <arch_main.h>
+
 #include <assert.h>
 #include <config.h>
 #include <drivers/regulator.h>
@@ -73,11 +75,7 @@ static int psu_optee_regulator_set_enabled(fwk_id_t id, bool enabled)
         res = regulator_disable(regulator);
     }
 
-    if (res) {
-        return FWK_E_HANDLER;
-    } else {
-        return FWK_SUCCESS;
-    }
+    return scmi_tee_result_to_fwk_status(res);
 }
 
 static int psu_optee_regulator_get_enabled(fwk_id_t id, bool *enabled)
@@ -112,12 +110,7 @@ static int psu_optee_regulator_set_voltage(fwk_id_t id, uint32_t voltage)
 
     res = regulator_set_voltage(regulator, (int)voltage * 1000);
 
-    if (res) {
-        return FWK_E_HANDLER;
-    } else {
-
-        return FWK_SUCCESS;
-    }
+    return scmi_tee_result_to_fwk_status(res);
 }
 
 static int psu_optee_regulator_get_voltage(fwk_id_t id, uint32_t *voltage)

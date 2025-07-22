@@ -133,11 +133,58 @@ properties:
 
         "enc" States that the region is encrypted.
           RIF_ENC_DIS, encryption is disabled
+          RIF_ENC_MCE_EN, encryption is enabled (side-channel attack protection)
           RIF_ENC_EN, encryption is enabled
 
         "enabled" Enables the region. Access controls applies.
           RIF_BREN_DIS, region disabled
           RIF_BREN_EN, region enabled
+
+      RISAFSUBPROT(risaf_subregion, dccid, dcen, rden, wren, srcid,
+                   priv, sec, enabled, rlock)
+
+        When a field isn't effective, it should be filled with RIF_UNUSED.
+
+        "risaf_subregion" Contains the ID of the RISAF subregion x to configure.
+          RISAF_SUBREG_ID(x), subregion ID is x.
+
+        "dccid" Contains the CID to which the subregion configuration is
+                delegated. This field has no effect in case of RIF_DCCID_DIS.
+          RIF_CIDx, subregion configuration is delegated to CID x
+
+        "dcen" The subregion configuration is delegated, if set.
+          RIF_DCCID_DIS, subregion delegation disabled
+          RIF_DCCID_EN, subregion delegation enabled
+
+        "rden" Read is enabled in the subregion for the CID defined in the
+               srcid field, if set.
+          RIF_RDEN_DIS, read in subregion disabled
+          RIF_RDEN_EN, read in subregion enabled
+
+        "wren" Write is enabled in the subregion for the CID defined in the
+               srcid field, if set.
+          RIF_WREN_DIS, write in subregion disabled
+          RIF_WREN_EN, write in subregion enabled
+
+        "srcid" Contains the CID which has access to the subregion.
+          RIF_CIDx, CID x has access to the subregion
+
+        "priv" Configures the privilege configuration for this subregion.
+          RIF_PRIV, Only privileged access is granted to the memory subregion
+          RIF_NPRIV, Privileged/Unprivileged access is granted to the memory
+                     subregion
+
+        "sec" Makes the subregion secure, if set.
+          RIF_SEC, subregion is accessible from secure world only
+          RIF_NSEC, subregion is accessible from non-secure world only
+
+        "enabled" Enables the subregion. Access controls applies.
+          RIF_SREN_DIS, subregion disabled
+          RIF_SREN_EN, subregion enabled
+
+        "rlock" The subregion resource is locked, if set.
+          RIF_RLOCK_DIS, subregion resource not locked
+          RIF_RLOCK_EN, subregion resource locked
 
       -RISAB-
       RISABPROT(delegate_en, delegate_cid, sec, default_priv, enabled,

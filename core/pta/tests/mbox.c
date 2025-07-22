@@ -496,10 +496,11 @@ static void yielding_mbox_notif(struct notif_driver *ndrv __unused,
 	}
 }
 
-static void atomic_mbox_notif(struct notif_driver *ndrv __unused,
+static bool atomic_mbox_notif(struct notif_driver *ndrv __unused,
 			      enum notif_event ev __maybe_unused)
 {
 	MSG("Asynchronous notifications started, event %d", (int)ev);
+	return false;
 }
 
 struct notif_driver mbox_notif = {

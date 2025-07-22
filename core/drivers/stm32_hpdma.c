@@ -103,7 +103,7 @@ static TEE_Result stm32_hpdma_syscfg_set_arcr(struct hpdma_pdata *hpdma_d)
 	if (SYSCON_ID(SYSCON_SYSCFG, offset) != SYSCFG_HPDMAARCR) {
 		EMSG("HPDMA offset for axi address remap is incorrect: %u",
 		     offset);
-		return TEE_ERROR_BAD_PARAMETERS;
+		panic();
 	}
 
 	/* Verify that mask is consistent */
@@ -112,7 +112,7 @@ static TEE_Result stm32_hpdma_syscfg_set_arcr(struct hpdma_pdata *hpdma_d)
 	      mask == SYSCFG_HPDMAARCR_HPDMA3AREN)) {
 		EMSG("HPDMA bitmask for axi address remap is incorrect: %u",
 		     mask);
-		return TEE_ERROR_BAD_PARAMETERS;
+		panic();
 	}
 
 	stm32mp_syscfg_write(SYSCFG_HPDMAARCR, mask, mask);
@@ -120,43 +120,74 @@ static TEE_Result stm32_hpdma_syscfg_set_arcr(struct hpdma_pdata *hpdma_d)
 	return TEE_SUCCESS;
 }
 
+static TEE_Result handle_available_semaphores(struct hpdma_pdata *hpdma_d)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	uint32_t cidcfgr = 0;
+	unsigned int i = 0;
+
+	for (i = 0 ; i < HPDMA_RIF_CHANNELS; i++) {
+		if (!(BIT(i) & hpdma_d->conf_data->access_mask[0]))
+			continue;
+
+		cidcfgr = io_read32(hpdma_d->base + _HPDMA_CIDCFGR(i));
+
+		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+			continue;
+
+		if (!(io_read32(hpdma_d->base + _HPDMA_SECCFGR) & BIT(i))) {
+			res =
+			stm32_rif_release_semaphore(hpdma_d->base +
+						    _HPDMA_SEMCR(i),
+						    HPDMA_NB_MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot release semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		} else {
+			res =
+			stm32_rif_acquire_semaphore(hpdma_d->base +
+						    _HPDMA_SEMCR(i),
+						    HPDMA_NB_MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot acquire semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		}
+	}
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
 {
 	TEE_Result res = TEE_ERROR_ACCESS_DENIED;
-	uint32_t cidcfgr = 0;
 	unsigned int i = 0;
 
 	if (!hpdma_d->conf_data)
 		return TEE_SUCCESS;
 
-	for (i = 0; i < HPDMA_RIF_CHANNELS; i++) {
-		if (!(BIT(i) & hpdma_d->conf_data->access_mask[0]))
-			continue;
-		/*
-		 * When TDCID, OP-TEE should be the one to set the CID filtering
-		 * configuration. Clearing previous configuration prevents
-		 * undesired events during the only legitimate configuration.
-		 */
-		if (is_tdcid)
+	if (is_tdcid) {
+		for (i = 0; i < HPDMA_RIF_CHANNELS; i++) {
+			if (!(BIT(i) & hpdma_d->conf_data->access_mask[0]))
+				continue;
+			/*
+			 * When TDCID, OP-TEE should be the one to set the CID
+			 * filtering configuration. Clearing previous
+			 * configuration prevents undesired events during the
+			 * only legitimate configuration.
+			 */
 			io_clrbits32(hpdma_d->base + _HPDMA_CIDCFGR(i),
 				     _HPDMA_CIDCFGR_CONF_MASK);
-
-		cidcfgr = io_read32(hpdma_d->base + _HPDMA_CIDCFGR(i));
-
-		/* Check if the channel is in semaphore mode */
-		if (SEM_MODE_INCORRECT(cidcfgr))
-			continue;
-
-		/* If not TDCID, we want to acquire semaphores assigned to us */
-		res = stm32_rif_acquire_semaphore(hpdma_d->base +
-						  _HPDMA_SEMCR(i),
-						  HPDMA_NB_MAX_CID_SUPPORTED);
-		if (res) {
-			EMSG("Couldn't acquire semaphore for channel %u", i);
-			clk_disable(hpdma_d->hpdma_clock);
-			return res;
 		}
+	} else {
+		res = handle_available_semaphores(hpdma_d);
+		if (res)
+			panic();
 	}
+
 	/* Security and privilege RIF configuration */
 	io_clrsetbits32(hpdma_d->base + _HPDMA_PRIVCFGR, _HPDMA_PRIVCFGR_MASK &
 			hpdma_d->conf_data->access_mask[0],
@@ -166,8 +197,10 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
 			hpdma_d->conf_data->sec_conf[0]);
 
 	/* Skip CID/semaphore configuration if not in TDCID state. */
-	if (!is_tdcid)
+	if (!is_tdcid) {
+		res = TEE_SUCCESS;
 		goto end;
+	}
 
 	for (i = 0; i < HPDMA_RIF_CHANNELS; i++) {
 		uint32_t cid_conf = hpdma_d->conf_data->cid_confs[i];
@@ -194,33 +227,6 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
 
 		io_clrsetbits32(hpdma_d->base + _HPDMA_CIDCFGR(i),
 				_HPDMA_CIDCFGR_CONF_MASK, cid_conf);
-
-		cidcfgr = io_read32(hpdma_d->base + _HPDMA_CIDCFGR(i));
-
-		/*
-		 * Take semaphore if the resource is in semaphore
-		 * mode and secured.
-		 */
-		if (SEM_MODE_INCORRECT(cidcfgr) ||
-		    !(io_read32(hpdma_d->base + _HPDMA_SECCFGR) & BIT(i))) {
-			res =
-			stm32_rif_release_semaphore(hpdma_d->base +
-						    _HPDMA_SEMCR(i),
-						    HPDMA_NB_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Couldn't release semaphore for res%u", i);
-				return TEE_ERROR_ACCESS_DENIED;
-			}
-		} else {
-			res =
-			stm32_rif_acquire_semaphore(hpdma_d->base +
-						    _HPDMA_SEMCR(i),
-						    HPDMA_NB_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Couldn't acquire semaphore for res%u", i);
-				return TEE_ERROR_ACCESS_DENIED;
-			}
-		}
 	}
 
 	/*
@@ -229,6 +235,10 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
 	 */
 	io_clrsetbits32(hpdma_d->base + _HPDMA_RCFGLOCKR, _HPDMA_RCFGLOCKR_MASK,
 			hpdma_d->conf_data->lock_conf[0]);
+
+	res = handle_available_semaphores(hpdma_d);
+	if (res)
+		panic();
 
 end:
 	if (IS_ENABLED(CFG_TEE_CORE_DEBUG)) {
@@ -248,7 +258,7 @@ end:
 		}
 	}
 
-	return TEE_SUCCESS;
+	return res;
 }
 
 static TEE_Result parse_dt(const void *fdt, int node,
@@ -305,7 +315,6 @@ static TEE_Result parse_dt(const void *fdt, int node,
 		rif_conf = fdt32_to_cpu(cuint[i]);
 
 		stm32_rif_parse_cfg(rif_conf, hpdma_d->conf_data,
-				    HPDMA_NB_MAX_CID_SUPPORTED,
 				    HPDMA_RIF_CHANNELS);
 	}
 
@@ -321,6 +330,8 @@ static TEE_Result parse_dt(const void *fdt, int node,
 static void stm32_hpdma_pm_resume(struct hpdma_pdata *hpdma)
 {
 	apply_rif_config(hpdma, true);
+
+	stm32_hpdma_syscfg_set_arcr(hpdma);
 }
 
 static void stm32_hpdma_pm_suspend(struct hpdma_pdata *hpdma)

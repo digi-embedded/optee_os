@@ -38,6 +38,7 @@
 #define _LPTIM_IXX_UP		BIT(5)
 #define _LPTIM_IXX_DOWN		BIT(6)
 #define _LPTIM_CMPARR_OK	(_LPTIM_IXX_CMPOK | _LPTIM_IXX_ARROK)
+#define _LPTIM_IXX_DIEROK	BIT(24) /* STM32MP2 DIEROK, DIEROKCF */
 
 /* LPTIM_CFGR register fields */
 #define _LPTIM_CFGR_CKSEL		BIT(0)
@@ -117,6 +118,7 @@
 
 struct lptimer_compat_data {
 	bool ier_wr_disabled;		/* disable lptimer to set dier */
+	bool has_dierok;		/* Has dierok and dierokcf bits */
 };
 
 struct lptimer_device {
@@ -134,7 +136,9 @@ struct stm32_lptimer_config {
 	struct lptimer_ext_trigger_cfg ext_trigger;
 };
 
-static TEE_Result stm32_lpt_counter_set_alarm(struct counter_device *counter)
+static TEE_Result
+stm32_lpt_counter_write_cmp_arr(struct counter_device *counter,
+				unsigned int cmp, unsigned int arr)
 {
 	struct lptimer_device *lpt_dev = counter_priv(counter);
 	uintptr_t base = lpt_dev->pdata.base;
@@ -143,8 +147,7 @@ static TEE_Result stm32_lpt_counter_set_alarm(struct counter_device *counter)
 	uint32_t val = 0;
 
 	/* ARR must be strictly greater than the CMP, within max_ticks range */
-	if (counter->alarm.ticks >= counter->max_ticks)
-		return TEE_ERROR_GENERIC;
+	assert(arr <= counter->max_ticks && arr > cmp);
 
 	res = clk_enable(lpt_dev->pdata.clock);
 	if (res)
@@ -156,8 +159,8 @@ static TEE_Result stm32_lpt_counter_set_alarm(struct counter_device *counter)
 	 * when the LPTIM is enabled
 	 */
 	io_setbits32(base + _LPTIM_CR, _LPTIM_CR_ENABLE);
-	io_write32(base + _LPTIM_ARR, counter->alarm.ticks + 1);
-	io_write32(base + _LPTIM_CMP, counter->alarm.ticks);
+	io_write32(base + _LPTIM_ARR, arr);
+	io_write32(base + _LPTIM_CMP, cmp);
 
 	/* Enforce CMP and ARR are correctly set, then clear these flags */
 	if (IO_READ32_POLL_TIMEOUT(base + _LPTIM_ISR, val,
@@ -169,23 +172,10 @@ static TEE_Result stm32_lpt_counter_set_alarm(struct counter_device *counter)
 	}
 	io_write32(base + _LPTIM_ICR, _LPTIM_CMPARR_OK);
 
-	if (lpt_dev->cdata && lpt_dev->cdata->ier_wr_disabled) {
-		/*
-		 * LPTIM_IER register must only be modified
-		 * when the LPTIM is disabled
-		 */
-		io_clrbits32(base + _LPTIM_CR, _LPTIM_CR_ENABLE);
-	}
-
-	/* enable, Compare match Interrupt */
-	io_setbits32(base + _LPTIM_IER, _LPTIM_IXX_CMPM);
-
 	/* restore cr */
 	io_write32(base + _LPTIM_CR, cr);
 
-	counter->alarm.is_enabled = true;
-
-	/* restart timer if it was enabled before setting the alarm */
+	/* restart the timer if it has been enabled earlier */
 	if (cr & _LPTIM_CR_ENABLE)
 		io_write32(base + _LPTIM_CR,
 			   _LPTIM_CR_ENABLE | _LPTIM_CR_CNTSTRT);
@@ -195,12 +185,33 @@ static TEE_Result stm32_lpt_counter_set_alarm(struct counter_device *counter)
 	return TEE_SUCCESS;
 }
 
-static TEE_Result stm32_lpt_counter_cancel_alarm(struct counter_device *counter)
+static TEE_Result
+stm32_lpt_counter_set_threshold(struct counter_device *counter,
+				unsigned int ticks)
+{
+	return stm32_lpt_counter_write_cmp_arr(counter, ticks,
+					       counter->ceiling);
+}
+
+static TEE_Result
+stm32_lpt_counter_set_ceiling(struct counter_device *counter,
+			      unsigned int ticks)
+{
+	return stm32_lpt_counter_write_cmp_arr(counter, counter->threshold,
+					       ticks);
+}
+
+static TEE_Result
+stm32_lpt_counter_set_event(struct counter_device *counter,
+			    unsigned int event_type, bool enable)
 {
 	struct lptimer_device *lpt_dev = counter_priv(counter);
 	uintptr_t base = lpt_dev->pdata.base;
 	uint32_t cr = 0;
+	uint32_t val = 0;
+	TEE_Result res = TEE_ERROR_GENERIC;
 
+	clk_enable(lpt_dev->pdata.clock);
 	cr = io_read32(base + _LPTIM_CR);
 
 	if (lpt_dev->cdata && lpt_dev->cdata->ier_wr_disabled) {
@@ -209,22 +220,67 @@ static TEE_Result stm32_lpt_counter_cancel_alarm(struct counter_device *counter)
 		 * when the LPTIM is disabled
 		 */
 		io_clrbits32(base + _LPTIM_CR, _LPTIM_CR_ENABLE);
+	} else {
+		io_setbits32(base + _LPTIM_CR, _LPTIM_CR_ENABLE);
 	}
-	io_clrbits32(base + _LPTIM_IER, _LPTIM_IXX_CMPM);
 
-	/*
-	 * LPTIM_CMP & ARR registers must only be modified
-	 * when the LPTIM is enabled
-	 */
-	io_setbits32(base + _LPTIM_CR, _LPTIM_CR_ENABLE);
-	io_write32(base + _LPTIM_CMP, 0);
+	switch (event_type) {
+	case COUNTER_EVENT_THRESHOLD:
+		/* enable, Compare match Interrupt */
+		if (enable)
+			io_setbits32(base + _LPTIM_IER, _LPTIM_IXX_CMPM);
+		else
+			io_clrbits32(base + _LPTIM_IER, _LPTIM_IXX_CMPM);
+		res = TEE_SUCCESS;
+		break;
+	case COUNTER_EVENT_OVERFLOW:
+		if (enable)
+			io_setbits32(base + _LPTIM_IER, _LPTIM_IXX_ARRM);
+		else
+			io_clrbits32(base + _LPTIM_IER, _LPTIM_IXX_ARRM);
+		res = TEE_SUCCESS;
+		break;
+	default:
+		res = TEE_ERROR_NOT_SUPPORTED;
+		goto out;
+	}
+	if (lpt_dev->cdata && lpt_dev->cdata->has_dierok) {
+		if (IO_READ32_POLL_TIMEOUT(base + _LPTIM_ISR, val,
+					   (val & _LPTIM_IXX_DIEROK),
+					   0, TIMEOUT_US_100MS))
+			res = TEE_ERROR_TIMEOUT;
 
+		/* Clear DIEROK after each IER write  */
+		io_write32(base + _LPTIM_ICR, _LPTIM_IXX_DIEROK);
+	}
+
+out:
 	/* restore cr */
 	io_write32(base + _LPTIM_CR, cr);
 
-	counter->alarm.is_enabled = false;
+	/* restart timer if it was enabled before setting the event */
+	if (cr & _LPTIM_CR_ENABLE)
+		io_write32(base + _LPTIM_CR,
+			   _LPTIM_CR_ENABLE | _LPTIM_CR_CNTSTRT);
 
-	return TEE_SUCCESS;
+	clk_disable(lpt_dev->pdata.clock);
+
+	return res;
+}
+
+static TEE_Result
+stm32_lpt_counter_enable_event(struct counter_device *counter,
+			       enum counter_event_type event_type)
+
+{
+	return stm32_lpt_counter_set_event(counter, event_type, true);
+}
+
+static TEE_Result
+stm32_lpt_counter_disable_event(struct counter_device *counter,
+				enum counter_event_type event_type)
+{
+	return stm32_lpt_counter_set_event(counter, event_type, false);
 }
 
 static TEE_Result _stm32_lpt_counter_get_value(struct lptimer_device *lpt_dev,
@@ -422,8 +478,10 @@ static const struct counter_ops stm32_lpt_counter_ops = {
 	.start = stm32_lpt_counter_start,
 	.stop = stm32_lpt_counter_stop,
 	.get_value = stm32_lpt_counter_get_value,
-	.set_alarm = stm32_lpt_counter_set_alarm,
-	.cancel_alarm = stm32_lpt_counter_cancel_alarm,
+	.set_threshold = stm32_lpt_counter_set_threshold,
+	.set_ceiling = stm32_lpt_counter_set_ceiling,
+	.enable_event = stm32_lpt_counter_enable_event,
+	.disable_event = stm32_lpt_counter_disable_event,
 	.set_config = stm32_lptimer_counter_set_config,
 	.release_config = stm32_lptimer_counter_release_config,
 };
@@ -432,23 +490,22 @@ static enum itr_return stm32_lptimer_itr(struct itr_handler *h)
 {
 	struct lptimer_device *lpt_dev = h->data;
 	uintptr_t base = lpt_dev->pdata.base;
+	struct counter_device *counter = lpt_dev->counter_dev;
 	uint32_t isr = 0;
+	uint32_t ier = 0;
 
 	/* counter may get stopped from the callback, keep the clock */
 	if (clk_enable(lpt_dev->pdata.clock))
 		panic();
 
 	isr = io_read32(base + _LPTIM_ISR);
+	ier = io_read32(base + _LPTIM_IER);
 
-	if (isr & _LPTIM_IXX_CMPM) {
-		uint32_t ticks = 0;
-		void *priv = lpt_dev->counter_dev->alarm.priv;
+	if (isr & ier & _LPTIM_IXX_CMPM)
+		counter_call_callback(counter, COUNTER_EVENT_THRESHOLD);
 
-		if (_stm32_lpt_counter_get_value(lpt_dev, &ticks))
-			EMSG("Failed to get counter value");
-
-		lpt_dev->counter_dev->alarm.callback(ticks, priv);
-	}
+	if (isr & ier & _LPTIM_IXX_ARRM)
+		counter_call_callback(counter, COUNTER_EVENT_OVERFLOW);
 
 	io_write32(base + _LPTIM_ICR, isr);
 
@@ -631,6 +688,11 @@ static TEE_Result probe_lpt_device(struct lptimer_device *lpt_dev)
 		lpt_dev->counter_dev = counter_dev_alloc();
 		lpt_dev->counter_dev->ops = &stm32_lpt_counter_ops;
 		lpt_dev->counter_dev->max_ticks = _LPTIM_CNT_MASK;
+		/*
+		 * Set ceiling to max value to avoid fails when directly
+		 * setting new threshold before enabling event.
+		 */
+		lpt_dev->counter_dev->ceiling = _LPTIM_CNT_MASK;
 		lpt_dev->counter_dev->priv = lpt_dev;
 		lpt_dev->counter_dev->name = lpt_dev->pdata.name;
 		lpt_dev->counter_dev->phandle = lpt_dev->pdata.phandle;
@@ -664,10 +726,12 @@ static TEE_Result stm32_lptimer_probe(const void *fdt, int node,
 
 static const struct lptimer_compat_data lptimer_cdata = {
 	.ier_wr_disabled = true,
+	.has_dierok = false,
 };
 
 static const struct lptimer_compat_data lptimer_mp25_cdata = {
 	.ier_wr_disabled = false,
+	.has_dierok = true,
 };
 
 static const struct dt_device_match stm32_lptimer_match_table[] = {

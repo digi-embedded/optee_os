@@ -32,6 +32,8 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
 
 	if (op == PM_OP_SUSPEND)
 		return stm32_pmic2_apply_pm_state(regulator, pwrlvl);
+	else if (op == PM_OP_RESUME)
+		return stm32_pmic2_resume_regulator(regulator);
 
 	return TEE_SUCCESS;
 }

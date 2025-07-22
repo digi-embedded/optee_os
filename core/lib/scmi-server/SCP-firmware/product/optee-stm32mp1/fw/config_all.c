@@ -466,10 +466,10 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
 {
     unsigned int channel_index = 0;
     size_t i, j;
-    /* @cfg does not consider agent #0 this the reserved platform/server agent */
-    size_t scmi_agent_count = cfg->agent_count + 1;
+    size_t scmi_agent_count = cfg->agent_count;
 
-    scmi_agent_table = fwk_mm_calloc(scmi_agent_count,
+    /* @cfg does not consider agent #0 this the reserved platform/server agent */
+    scmi_agent_table = fwk_mm_calloc(scmi_agent_count + 1,
                                      sizeof(*scmi_agent_table));
 
     scmi_service_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
@@ -490,8 +490,8 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
         .agent_table = scmi_agent_table,
         .agent_count = scmi_agent_count,
         .protocol_count_max = 9,
-        .vendor_identifier = "STMicroelectronics",
-        .sub_vendor_identifier = "STMicroelectronics",
+        .vendor_identifier = "ST",
+        .sub_vendor_identifier = "ST",
     };
 
     for (i = 0; i < cfg->agent_count; i++) {
@@ -736,7 +736,7 @@ static void set_resources(struct scpfw_config *cfg)
                         (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_PSU, psu_index);
                     dvfs_data[dvfs_index].clock_id =
                         (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_CLOCK, clock_index);
-                    dvfs_data[dvfs_index].latency = 0; /* not set, used for async access */
+                    dvfs_data[dvfs_index].latency = 1000;
                     dvfs_data[dvfs_index].sustained_idx = perfd_cfg->initial_opp;
                     dvfs_data[dvfs_index].opps =
                         fwk_mm_calloc(perfd_cfg->dvfs_opp_count,

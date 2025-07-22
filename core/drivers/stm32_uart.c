@@ -148,16 +148,6 @@ void stm32_uart_init(struct stm32_uart_pdata *pd, vaddr_t base)
 	pd->chip.ops = &stm32_uart_serial_ops;
 }
 
-static void register_secure_uart(struct stm32_uart_pdata *pd)
-{
-	stm32mp_register_secure_periph_iomem(pd->base.pa);
-}
-
-static void register_non_secure_uart(struct stm32_uart_pdata *pd)
-{
-	stm32mp_register_non_secure_periph_iomem(pd->base.pa);
-}
-
 static TEE_Result stm32_uart_update_baudrate(struct stm32_uart_pdata *pd,
 					     char *params)
 {
@@ -226,12 +216,10 @@ static TEE_Result parse_dt(void *fdt, int node, struct stm32_uart_pdata *pd)
 
 	pd->chip.ops = &stm32_uart_serial_ops;
 	pd->base.pa = info.reg;
-	pd->secure = (info.status == DT_STATUS_OK_SEC);
 
 	assert(cpu_mmu_enabled());
-	pd->base.va = (vaddr_t)phys_to_virt(pd->base.pa,
-					pd->secure ? MEM_AREA_IO_SEC :
-					MEM_AREA_IO_NSEC, info.reg_size);
+	pd->base.va = (vaddr_t)phys_to_virt(pd->base.pa, MEM_AREA_IO_SEC,
+					    info.reg_size);
 
 	return TEE_SUCCESS;
 }
@@ -243,11 +231,6 @@ static void setup_resources(struct stm32_uart_pdata *pd)
 
 	if (pinctrl_apply_state(pd->pinctrl))
 		panic();
-
-	if (pd->secure)
-		register_secure_uart(pd);
-	else
-		register_non_secure_uart(pd);
 }
 
 static bool uart_is_for_console(void *fdt, int node, char **params)
@@ -340,7 +323,6 @@ static TEE_Result stm32_uart_probe(const void *fdt, int node,
 		vaddr_t uart_base = io_pa_or_va(&pd->base, 1);
 
 		register_serial_console(&pd->chip);
-		IMSG("UART console (%ssecure)", pd->secure ? "" : "non-");
 
 		pd->is_console = true;
 		pd->brr = io_read32(uart_base + UART_REG_BRR);

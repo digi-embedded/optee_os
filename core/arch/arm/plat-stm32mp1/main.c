@@ -13,7 +13,6 @@
 #include <drivers/gic.h>
 #include <drivers/pinctrl.h>
 #include <drivers/stm32_bsec.h>
-#include <drivers/stm32_etzpc.h>
 #include <drivers/stm32_gpio.h>
 #include <drivers/stm32_tamp.h>
 #include <drivers/stm32_uart.h>
@@ -108,17 +107,16 @@ void __weak console_init(void)
 	/* Early console initialization before MMU setup */
 	struct uart {
 		paddr_t pa;
-		bool secure;
 	} uarts[] = {
 		[0] = { .pa = 0 },
-		[1] = { .pa = USART1_BASE, .secure = true, },
-		[2] = { .pa = USART2_BASE, .secure = false, },
-		[3] = { .pa = USART3_BASE, .secure = false, },
-		[4] = { .pa = UART4_BASE, .secure = false, },
-		[5] = { .pa = UART5_BASE, .secure = false, },
-		[6] = { .pa = USART6_BASE, .secure = false, },
-		[7] = { .pa = UART7_BASE, .secure = false, },
-		[8] = { .pa = UART8_BASE, .secure = false, },
+		[1] = { .pa = USART1_BASE },
+		[2] = { .pa = USART2_BASE },
+		[3] = { .pa = USART3_BASE },
+		[4] = { .pa = UART4_BASE },
+		[5] = { .pa = UART5_BASE },
+		[6] = { .pa = USART6_BASE },
+		[7] = { .pa = UART7_BASE },
+		[8] = { .pa = UART8_BASE },
 	};
 
 	COMPILE_TIME_ASSERT(ARRAY_SIZE(uarts) > CFG_STM32_EARLY_CONSOLE_UART);
@@ -129,7 +127,6 @@ void __weak console_init(void)
 	/* No clock yet bound to the UART console */
 	console_data.clock = NULL;
 
-	console_data.secure = uarts[CFG_STM32_EARLY_CONSOLE_UART].secure;
 	stm32_uart_init(&console_data, uarts[CFG_STM32_EARLY_CONSOLE_UART].pa);
 
 	register_serial_console(&console_data.chip);
@@ -393,6 +390,7 @@ static TEE_Result init_stm32mp1_drivers(void)
 {
 	struct dt_driver_provider *prov = NULL;
 	TEE_Result res = TEE_ERROR_GENERIC;
+	uint32_t __maybe_unused state = 0;
 	uint32_t query_arg[1] = { };
 	struct firewall_query firewall = {
 		.args = query_arg,
@@ -432,6 +430,15 @@ static TEE_Result init_stm32mp1_drivers(void)
 	/* Configure SRAMx secure hardening */
 	configure_srams(prov);
 
+#ifdef CFG_STM32MP15
+	/* Device in Secure Closed state require RCC secure hardening */
+	if (stm32_bsec_get_state(&state))
+		panic();
+
+	if (state == BSEC_STATE_SEC_CLOSED && !stm32_rcc_is_secure())
+		panic("Closed device mandates secure RCC");
+#endif
+
 	return TEE_SUCCESS;
 }
 
@@ -440,6 +447,13 @@ driver_init_late(init_stm32mp1_drivers);
 vaddr_t stm32_rcc_base(void)
 {
 	static struct io_pa_va base = { .pa = RCC_BASE };
+
+	return io_pa_or_va_secure(&base, 1);
+}
+
+vaddr_t stm32_exti_base(void)
+{
+	static struct io_pa_va base = { .pa = EXTI_BASE };
 
 	return io_pa_or_va_secure(&base, 1);
 }
@@ -731,19 +745,22 @@ void __noreturn do_reset(const char *str __maybe_unused)
 }
 
 #ifdef CFG_STM32_HSE_MONITORING
-/* pourcent rate of hse alarm */
-#define HSE_ALARM_PERCENT	110
+/* Percent rate of HSE event */
+#define HSE_THRESHOLD_PERCENT	110
 #define FREQ_MONITOR_COMPAT	"st,freq-monitor"
 
 struct stm32_hse_monitoring_data {
 	struct counter_device *counter;
 	void *config;
+	uint32_t threshold;
 };
 
-static void stm32_hse_over_frequency(uint32_t ticks __unused,
-				     void *user_data __unused)
+static void stm32_hse_over_frequency(void *priv,
+				     enum counter_event_type event __unused)
 {
-	EMSG("HSE over frequency: nb ticks:%"PRIu32, ticks);
+	uint32_t __maybe_unused *ticks = priv;
+
+	EMSG("HSE over frequency detected: nb ticks:%"PRIu32, *ticks);
 }
 DECLARE_KEEP_PAGER(stm32_hse_over_frequency);
 
@@ -753,13 +770,31 @@ static TEE_Result stm32_hse_monitoring_pm(enum pm_op op,
 {
 	struct stm32_hse_monitoring_data *priv =
 	(struct stm32_hse_monitoring_data *)PM_CALLBACK_GET_HANDLE(h);
+	TEE_Result res = TEE_ERROR_GENERIC;
 
 	if (op == PM_OP_RESUME) {
-		counter_start(priv->counter, priv->config);
-		counter_set_alarm(priv->counter);
+		res = counter_set_threshold(priv->counter, priv->threshold);
+		if (res)
+			return res;
+
+		res = counter_enable_event(priv->counter,
+					   COUNTER_EVENT_THRESHOLD,
+					   stm32_hse_over_frequency,
+					   (void *)&priv->threshold);
+		if (res)
+			return res;
+
+		res = counter_start(priv->counter, priv->config);
+		if (res)
+			return res;
 	} else {
-		counter_cancel_alarm(priv->counter);
-		counter_stop(priv->counter);
+		res = counter_stop(priv->counter);
+		if (res)
+			return res;
+
+		res = counter_disable_all_events(priv->counter);
+		if (res)
+			return res;
 	}
 
 	return TEE_SUCCESS;
@@ -812,25 +847,33 @@ static TEE_Result stm32_hse_monitoring(void)
 	 */
 	hsi_cal /= 1024;
 
-	ticks = (hse / 100) * HSE_ALARM_PERCENT;
+	ticks = (hse / 100) * HSE_THRESHOLD_PERCENT;
 	ticks /= hsi_cal;
 
-	DMSG("HSE:%luHz HSI cal:%luHz alarm:%"PRIu32, hse, hsi_cal, ticks);
+	DMSG("HSE:%luHz HSI cal:%luHz event:%"PRIu32, hse, hsi_cal, ticks);
 
 	counter = fdt_counter_get(fdt, node, &config);
 	assert(counter && config);
 
-	counter->alarm.callback = stm32_hse_over_frequency;
-	counter->alarm.ticks = ticks;
-
 	priv->counter = counter;
 	priv->config = config;
+	priv->threshold = ticks;
 
 	register_pm_core_service_cb(stm32_hse_monitoring_pm, priv,
 				    "stm32-hse-monitoring");
+	res = counter_set_threshold(counter, priv->threshold);
+	if  (res)
+		return res;
 
-	counter_start(counter, config);
-	counter_set_alarm(counter);
+	res = counter_enable_event(counter, COUNTER_EVENT_THRESHOLD,
+				   stm32_hse_over_frequency,
+				   (void *)&priv->threshold);
+	if  (res)
+		return res;
+
+	res = counter_start(counter, config);
+	if  (res)
+		return res;
 
 	return TEE_SUCCESS;
 }

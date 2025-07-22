@@ -5,7 +5,7 @@
 
 #include <assert.h>
 #include <drivers/nvmem.h>
-#include <dt-bindings/soc/stm32mp25-rif.h>
+#include <drivers/stm32mp_dt_bindings.h>
 #include <initcall.h>
 #include <io.h>
 #include <kernel/dt.h>
@@ -21,7 +21,11 @@
 #include <types_ext.h>
 #include <util.h>
 
+#if defined(CFG_STM32_RIF)
 #define CURRENT_CID RIF_CID1
+#else
+#define CURRENT_CID 0x1
+#endif
 #define NB_ZONES_STM32MP1 U(3)
 #define NB_ZONES_STM32MP2 U(7)
 

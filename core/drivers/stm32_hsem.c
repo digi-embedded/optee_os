@@ -8,6 +8,7 @@
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
 #include <drivers/stm32_rif.h>
+#include <io.h>
 #include <kernel/boot.h>
 #include <kernel/delay.h>
 #include <kernel/dt.h>
@@ -57,7 +58,6 @@
 #define HSEM_NB_SEM_GROUPS		U(4)
 #define HSEM_NB_SEM_PER_GROUP		U(4)
 
-#define HSEM_NB_MAX_CID_SUPPORTED	U(7)
 #define HSEM_RIF_RESOURCES		U(16)
 
 struct hsem_pdata {
@@ -214,7 +214,6 @@ static TEE_Result parse_dt(const void *fdt, int node)
 		rif_conf = fdt32_to_cpu(cuint[i]);
 
 		stm32_rif_parse_cfg(rif_conf, &hsem_d->conf_data,
-				    HSEM_NB_MAX_CID_SUPPORTED,
 				    HSEM_RIF_RESOURCES);
 	}
 

@@ -211,7 +211,8 @@ static int smt_respond(fwk_id_t channel_id, const void *payload, size_t size)
     memory->length = sizeof(memory->message_header) + size;
     memory->status |= MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK;
 
-    channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
+    if (memory->flags & MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_MASK)
+        channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
 
     return FWK_SUCCESS;
 }
@@ -236,12 +237,10 @@ static int smt_transmit(fwk_id_t channel_id, uint32_t message_header,
 
     memory->message_header = message_header;
 
-    /*
-     * we do not want the agent to send an interrupt when it receives
-     * the message.
-     */
-    memory->flags = 0;
-
+    if (request_ack_by_interrupt)
+        memory->flags = MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_MASK;
+    else
+        memory->flags = 0;
     /* Copy the payload */
     fwk_str_memcpy(memory->payload, payload, size);
 

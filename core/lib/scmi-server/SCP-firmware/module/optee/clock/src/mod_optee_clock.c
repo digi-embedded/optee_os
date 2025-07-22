@@ -14,6 +14,8 @@
 #include <fwk_module.h>
 #include <fwk_log.h>
 
+#include <arch_main.h>
+
 #include <mod_clock.h>
 #include <mod_optee_clock.h>
 
@@ -121,13 +123,16 @@ static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
         }
     } else {
         if (!ctx->enabled) {
+            TEE_Result res;
+
             FWK_LOG_DEBUG(
                 MOD_NAME "SCMI optee_clock (%u/\"%s\") enable",
                 fwk_id_get_element_idx(dev_id),
                 clk_get_name(ctx->clk));
 
-            if (clk_enable(ctx->clk)) {
-                return FWK_E_DEVICE;
+            res = clk_enable(ctx->clk);
+            if (res) {
+                return scmi_tee_result_to_fwk_status(res);
             }
 
             ctx->enabled = true;
@@ -204,7 +209,7 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
             range->max = range->min;
             range->rate_count = 1;
         } else if (res != TEE_SUCCESS) {
-            return FWK_E_DEVICE;
+            return scmi_tee_result_to_fwk_status(res);
         }
 
         range->rate_type = MOD_CLOCK_RATE_TYPE_CONTINUOUS;
@@ -214,7 +219,7 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
 
         return FWK_SUCCESS;
     } else if (res != TEE_SUCCESS) {
-        return FWK_E_DEVICE;
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
@@ -248,10 +253,8 @@ static int set_rate(fwk_id_t dev_id, uint64_t rate,
     }
 
     res = clk_set_rate(ctx->clk, rate);
-    if (res == TEE_ERROR_NOT_SUPPORTED) {
-        return FWK_E_SUPPORT;
-    } else if (res != TEE_SUCCESS) {
-        return FWK_E_DEVICE;
+    if (res) {
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     FWK_LOG_DEBUG(
@@ -289,7 +292,7 @@ static int get_rate_from_index(fwk_id_t dev_id,
         *rate = clk_get_rate(ctx->clk);
         return FWK_SUCCESS;
     } else if (res != TEE_SUCCESS) {
-        return FWK_E_DEVICE;
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     if (rate_index > rate_count) {
@@ -341,7 +344,7 @@ static int get_duty_cycle(fwk_id_t dev_id, uint32_t *num, uint32_t *den)
         /* Assume a 50% duty cycle */
         duty = (struct clk_duty){ .num = 1, .den = 2 };
     } else if (res != TEE_SUCCESS) {
-        return FWK_E_DEVICE;
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     *num = duty.num;
@@ -425,7 +428,7 @@ static int optee_clock_element_init(fwk_id_t element_id, unsigned int dev_count,
         if (ctx->enabled) {
             res = clk_enable(ctx->clk);
             if (res) {
-                return FWK_E_DEVICE;
+                return scmi_tee_result_to_fwk_status(res);
             }
         }
     }

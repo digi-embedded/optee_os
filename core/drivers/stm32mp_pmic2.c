@@ -5,18 +5,12 @@
 
 #include <config.h>
 #include <drivers/regulator.h>
-#include <drivers/stm32_exti.h>
 #include <drivers/stm32_i2c.h>
-#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
-#include <drivers/stm32mp25_pwr.h>
-#else
-#include <drivers/stm32mp1_pwr.h>
-#endif
 #include <drivers/stpmic2.h>
 #include <keep.h>
 #include <kernel/boot.h>
-#include <kernel/delay.h>
 #include <kernel/dt.h>
+#include <kernel/interrupt.h>
 #include <kernel/notif.h>
 #include <kernel/panic.h>
 #include <kernel/pm.h>
@@ -52,6 +46,8 @@ static bool stm32_pmic2;
  * @last_lp_mode: Last low power mode selected
  * @levels_desc: Description of the supported voltage levels
  * @levels: Voltage level value array related to description @levels_desc
+ * @power_control_en: PWRCTRL input line is enabled
+ * @forced_off: Regulator was forced off at suspend
  */
 struct pmic_regu {
 	struct stpmic2 *pmic;
@@ -62,6 +58,8 @@ struct pmic_regu {
 	int last_lp_mode;
 	struct regulator_voltages_desc levels_desc;
 	int *levels;
+	bool power_control_en;
+	bool forced_off;
 };
 
 /*
@@ -343,6 +341,36 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
 	FMSG("%s: suspend state:%#"PRIx8" %d uV",
 	     regulator_name(regulator), state, lp_level_uv);
 
+	/*
+	 * If the LP state is controlled by the consumer (power control line
+	 * disabled), and the suspend state was requested as OFF in device tree,
+	 * then disable the regulator and put a message.
+	 */
+	if (!regu->power_control_en && (state & STPMIC2_LP_STATE_OFF)) {
+		bool enabled;
+
+		res = stpmic2_regulator_get_state(regu->pmic, regu->id,
+						  &enabled);
+		if (res)
+			return res;
+
+		if (enabled) {
+			res = stpmic2_regulator_set_state(regu->pmic, regu->id,
+							  false);
+			if (res)
+				return res;
+
+			IMSG("regulator %s forced OFF",
+			     regulator_name(regulator));
+
+			regu->forced_off = true;
+		} else {
+			regu->forced_off = false;
+		}
+
+		return TEE_SUCCESS;
+	}
+
 	if (mode == regu->last_lp_mode)
 		return TEE_SUCCESS;
 
@@ -367,6 +395,23 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
 	}
 
 	regu->last_lp_mode = mode;
+
+	return TEE_SUCCESS;
+}
+
+TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	struct pmic_regu *regu = regulator->priv;
+
+	if (regu->forced_off) {
+		/* Re-enable a regulator that was forced off in suspend */
+		res = stpmic2_regulator_set_state(regu->pmic, regu->id, true);
+		if (res)
+			return res;
+
+		regu->forced_off = false;
+	}
 
 	return TEE_SUCCESS;
 }
@@ -408,6 +453,9 @@ static TEE_Result pmic_supplied_init(struct regulator *regulator,
 		cuint = fdt_getprop(fdt, node, p->name, NULL);
 		if (!cuint)
 			continue;
+
+		if (p->prop == STPMIC2_PWRCTRL_EN)
+			regu->power_control_en = true;
 
 		value = fdt32_to_cpu(*cuint);
 		FMSG("%s: %d, %#"PRIx32, regulator_name(regulator), p->prop,
@@ -629,9 +677,89 @@ static TEE_Result parse_regulator_fdt_nodes(const void *fdt, int node,
 }
 
 #ifdef CFG_STM32_PWR_IRQ
+
+/* We expect a single instance of STPMIC2, if any */
+static struct stpmic2 *stpmic2;
+
+static void pmic_event_handler(void)
+{
+	assert(stpmic2);
+
+	if (stpmic2_handle_irq(stpmic2))
+		panic("STPMIC2 interrupts");
+}
+
+static void enable_stpmic2_interrupt(struct stpmic2 *pmic)
+{
+	struct pmic_it_handle_s *prv = NULL;
+
+	SLIST_FOREACH(prv, &pmic->it_list, link) {
+		if (stpmic2_set_irq_mask(pmic, prv->pmic_it, false)) {
+			EMSG("Failed to enable STPMIC2 interrupt %u",
+			     prv->pmic_it);
+			panic();
+		}
+	}
+
+	/* Unmask all over-current interrupts */
+	if (stpmic2_register_write(pmic, INT_MASK_R3, 0x00))
+		panic();
+
+	if (stpmic2_register_write(pmic, INT_MASK_R4, 0x00))
+		panic();
+}
+
+static void yielding_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
+					    enum notif_event ev)
+{
+	switch (ev) {
+	case NOTIF_EVENT_DO_BOTTOM_HALF:
+		pmic_event_handler();
+		break;
+	case NOTIF_EVENT_STOPPED:
+		/*
+		 * Treat events pending by the time NOTIF_EVENT_SOPPED
+		 * is handled by OP-TEE notif framework.
+		 */
+		pmic_event_handler();
+		break;
+	default:
+		EMSG("Unknown event %d", ev);
+		panic();
+	}
+}
+
+static bool atomic_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
+					  enum notif_event ev __maybe_unused)
+{
+	assert(ev == NOTIF_EVENT_STARTED);
+
+	return true;
+}
+DECLARE_KEEP_PAGER(atomic_stm32mp2_stpmic2_notif);
+
+/* Structure below is not const to prevent it spreads in the unpaged sections */
+static struct notif_driver stm32mp2_stpmic2_notif = {
+	.atomic_cb = atomic_stm32mp2_stpmic2_notif,
+	.yielding_cb = yielding_stm32mp2_stpmic2_notif,
+};
+
+static enum itr_return pmic_it_handler(struct itr_handler *handler __unused)
+{
+	if (notif_async_is_started())
+		notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
+	else
+		pmic_event_handler();
+
+	return ITRR_HANDLED;
+}
+DECLARE_KEEP_PAGER(pmic_it_handler);
+
 enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id)
 {
 	struct pmic_it_handle_s *prv = NULL;
+
+	assert(pmic == stpmic2);
 
 	FMSG("Stpmic2 it id %d", (int)it_id);
 
@@ -647,74 +775,32 @@ enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id)
 	return ITRR_NONE;
 }
 
-static enum itr_return stpmic2_irq_handler(struct itr_handler *handler)
-{
-	struct stpmic2 *pmic = handler->data;
-
-	FMSG("Stpmic2 irq");
-
-	stpmic2_handle_irq(pmic);
-
-	return ITRR_HANDLED;
-}
-
 static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
 				       struct stpmic2 *pmic)
 {
-	struct itr_handler *hdl = NULL;
-	const fdt32_t *cuint = NULL;
-	uint32_t phandle = 0;
-	int wakeup_parent_node = 0;
-	int len = 0;
+	TEE_Result res = TEE_ERROR_GENERIC;
 	const uint32_t *notif_ids = NULL;
+	struct itr_chip *itr_chip = NULL;
+	size_t itr_num = 0;
 	int nb_notif = 0;
 
 	FMSG("Init stpmic2 irq");
 
+	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+	if (res)
+		return res;
+
+	res = interrupt_create_handler(itr_chip, itr_num, pmic_it_handler,
+				       NULL, 0, NULL);
+	if (res)
+		panic("pmic: Could not create interrupt handler");
+
 	SLIST_INIT(&pmic->it_list);
 
-	cuint = fdt_getprop(fdt, node, "wakeup-parent", &len);
-	if (!cuint || len != sizeof(uint32_t))
-		panic("Missing wakeup-parent");
-
-	phandle = fdt32_to_cpu(*cuint);
-
-	wakeup_parent_node = fdt_node_offset_by_phandle(fdt, phandle);
-
-	cuint = fdt_getprop(fdt, node, "st,wakeup-pin-number", NULL);
-	if (cuint) {
-		TEE_Result res = TEE_ERROR_GENERIC;
-		size_t it = 0;
-
-		it = fdt32_to_cpu(*cuint) - 1;
-
-#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
-		res = stm32mp25_pwr_itr_alloc_add(fdt, wakeup_parent_node, it,
-						  stpmic2_irq_handler,
-						  PWR_WKUP_FLAG_FALLING |
-						  PWR_WKUP_FLAG_THREADED,
-						  pmic, &hdl);
-		if (res)
-			return res;
-
-		stm32mp25_pwr_itr_enable(hdl->it);
-#else
-		res = stm32mp1_pwr_itr_alloc_add(fdt, wakeup_parent_node, it,
-						 stpmic2_irq_handler,
-						 PWR_WKUP_FLAG_FALLING |
-						 PWR_WKUP_FLAG_THREADED,
-						 pmic, &hdl);
-		if (res)
-			return res;
-
-		stm32mp1_pwr_itr_enable(hdl->it);
-
-#endif
-	}
+	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
+		notif_register_driver(&stm32mp2_stpmic2_notif);
 
 	notif_ids = fdt_getprop(fdt, node, "st,notif-it-id", &nb_notif);
-	if (!notif_ids)
-		return TEE_ERROR_ITEM_NOT_FOUND;
 
 	if (nb_notif > 0) {
 		struct pmic_it_handle_s *prv = NULL;
@@ -723,8 +809,11 @@ static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
 		int nb_it = 0;
 
 		pmic_its = fdt_getprop(fdt, node, "st,pmic-it-id", &nb_it);
-		if (!pmic_its)
-			return TEE_ERROR_ITEM_NOT_FOUND;
+		if (!pmic_its) {
+			EMSG("Missing property st,pmic-it-id on node %s",
+			     fdt_get_name(fdt, node, NULL));
+			panic();
+		}
 
 		if (nb_it != nb_notif)
 			panic("st,notif-it-id incorrect description");
@@ -745,21 +834,25 @@ static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
 
 			SLIST_INSERT_HEAD(&pmic->it_list, prv, link);
 
-			/* Enable requested interrupt */
-			if (stpmic2_set_irq_mask(pmic, pmic_it, false))
-				return TEE_ERROR_GENERIC;
-
 			FMSG("STPMIC2 forwards pmic_it:%u as notif:%u",
 			     prv->pmic_it, prv->notif_id);
 		}
 	}
 
-	/* Unmask all over-current interrupts */
-	if (stpmic2_register_write(pmic, INT_MASK_R3, 0x00))
-		return TEE_ERROR_GENERIC;
+	stm32_i2c_interrupt_access_lockdeps(pmic->pmic_i2c_handle, itr_chip,
+					    itr_num);
 
-	if (stpmic2_register_write(pmic, INT_MASK_R4, 0x00))
-		return TEE_ERROR_GENERIC;
+	stpmic2 = pmic;
+
+	enable_stpmic2_interrupt(pmic);
+
+	interrupt_enable(itr_chip, itr_num);
+	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
+		if (interrupt_can_set_wake(itr_chip))
+			interrupt_set_wake(itr_chip, itr_num, true);
+		else
+			DMSG("PMIC wakeup source ignored");
+	}
 
 	return TEE_SUCCESS;
 }

@@ -176,20 +176,6 @@ static const uint8_t parent_id_clock_id[_PARENT_NB] = {
 	[_CK_MCU] = CK_MCU,
 };
 
-static enum stm32mp1_parent_id osc_id2parent_id(enum stm32mp_osc_id osc_id)
-{
-	assert(osc_id >= OSC_HSI && osc_id < NB_OSC);
-	COMPILE_TIME_ASSERT((int)OSC_HSI == (int)_HSI &&
-			    (int)OSC_HSE == (int)_HSE &&
-			    (int)OSC_CSI == (int)_CSI &&
-			    (int)OSC_LSI == (int)_LSI &&
-			    (int)OSC_LSE == (int)_LSE &&
-			    (int)OSC_I2S_CKIN == (int)_I2S_CKIN &&
-			    (int)OSC_USB_PHY_48 == (int)_USB_PHY_48);
-
-	return (enum stm32mp1_parent_id)osc_id;
-}
-
 static enum stm32mp1_parent_id clock_id2parent_id(unsigned long id)
 {
 	size_t n = 0;
@@ -1258,142 +1244,6 @@ static unsigned long _stm32_clock_get_rate(unsigned long id)
 	return rate;
 }
 
-/*
- * Get the parent ID of the target parent clock, or -1 if no parent found.
- */
-static enum stm32mp1_parent_id get_parent_id_parent(enum stm32mp1_parent_id id)
-{
-	enum stm32mp1_parent_sel s = _UNKNOWN_SEL;
-	enum stm32mp1_pll_id pll_id = _PLL_NB;
-	uint32_t p_sel = 0;
-
-	switch (id) {
-	case _ACLK:
-	case _HCLK5:
-	case _HCLK6:
-	case _PCLK4:
-	case _PCLK5:
-		s = _AXISS_SEL;
-		break;
-	case _PLL1_P:
-	case _PLL1_Q:
-	case _PLL1_R:
-		pll_id = _PLL1;
-		break;
-	case _PLL2_P:
-	case _PLL2_Q:
-	case _PLL2_R:
-		pll_id = _PLL2;
-		break;
-	case _PLL3_P:
-	case _PLL3_Q:
-	case _PLL3_R:
-		pll_id = _PLL3;
-		break;
-	case _PLL4_P:
-	case _PLL4_Q:
-	case _PLL4_R:
-		pll_id = _PLL4;
-		break;
-	case _PCLK1:
-	case _PCLK2:
-	case _HCLK2:
-	case _CK_PER:
-	case _CK_MPU:
-	case _CK_MCU:
-	case _USB_PHY_48:
-		/* We do not expected to access these */
-		panic();
-		break;
-	default:
-		/* Other parents have no parent */
-		return -1;
-	}
-
-	if (s != _UNKNOWN_SEL) {
-		const struct stm32mp1_clk_sel *sel = clk_sel_ref(s);
-		vaddr_t rcc_base = stm32_rcc_base();
-
-		p_sel = (io_read32(rcc_base + sel->offset) >> sel->src) &
-			sel->msk;
-
-		if (p_sel < sel->nb_parent)
-			return sel->parent[p_sel];
-	} else {
-		const struct stm32mp1_clk_pll *pll = pll_ref(pll_id);
-
-		p_sel = io_read32(stm32_rcc_base() + pll->rckxselr) &
-			RCC_SELR_REFCLK_SRC_MASK;
-
-		if (pll->refclk[p_sel] != _UNKNOWN_OSC_ID)
-			return osc_id2parent_id(pll->refclk[p_sel]);
-	}
-
-	FMSG("No parent found for %s", stm32mp1_clk_parent_name[id]);
-	return -1;
-}
-
-/* We are only interested in knowing if PLL3 shall be secure or not */
-static void secure_parent_clocks(enum stm32mp1_parent_id parent_id)
-{
-	enum stm32mp1_parent_id grandparent_id = _UNKNOWN_ID;
-
-	switch (parent_id) {
-	case _ACLK:
-	case _HCLK2:
-	case _HCLK5:
-	case _HCLK6:
-	case _PCLK4:
-	case _PCLK5:
-		/* Intermediate clock mux or clock, go deeper in clock tree */
-		break;
-	case _HSI:
-	case _HSI_KER:
-	case _LSI:
-	case _CSI:
-	case _CSI_KER:
-	case _HSE:
-	case _HSE_KER:
-	case _HSE_KER_DIV2:
-	case _HSE_RTC:
-	case _LSE:
-	case _PLL1_P:
-	case _PLL1_Q:
-	case _PLL1_R:
-	case _PLL2_P:
-	case _PLL2_Q:
-	case _PLL2_R:
-		/* Always secure clocks, no need to go further */
-		return;
-	case _PLL3_P:
-	case _PLL3_Q:
-	case _PLL3_R:
-		/* PLL3 is a shared resource, registered and don't go further */
-		stm32mp_register_secure_periph(STM32MP1_SHRES_PLL3);
-		return;
-	default:
-		DMSG("Cannot lookup parent clock %s",
-		     stm32mp1_clk_parent_name[parent_id]);
-		panic();
-	}
-
-	grandparent_id = get_parent_id_parent(parent_id);
-	if (grandparent_id >= 0)
-		secure_parent_clocks(grandparent_id);
-}
-
-void stm32mp_register_clock_parents_secure(unsigned long clock_id)
-{
-	enum stm32mp1_parent_id parent_id = stm32mp1_clk_get_parent(clock_id);
-
-	if (parent_id < 0) {
-		DMSG("No parent for clock %lu", clock_id);
-		return;
-	}
-
-	secure_parent_clocks(parent_id);
-}
-
 static void __maybe_unused enable_rcc_tzen(void)
 {
 	io_setbits32(stm32_rcc_base() + RCC_TZCR, RCC_TZCR_TZEN);
@@ -1403,16 +1253,6 @@ static void __maybe_unused disable_rcc_tzen(void)
 {
 	IMSG("RCC is non-secure");
 	io_clrbits32(stm32_rcc_base() + RCC_TZCR, RCC_TZCR_TZEN);
-}
-
-void stm32mp1_clk_mcuss_protect(bool enable)
-{
-	uintptr_t rcc_base = stm32_rcc_base();
-
-	if (enable)
-		io_setbits32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
-	else
-		io_clrbits32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
 }
 
 #ifdef CFG_STM32_CPU_OPP
@@ -2037,10 +1877,8 @@ static void enable_static_secure_clocks(void)
 		BSEC,
 	};
 
-	for (idx = 0; idx < ARRAY_SIZE(secure_enable); idx++) {
+	for (idx = 0; idx < ARRAY_SIZE(secure_enable); idx++)
 		clk_enable(stm32mp_rcc_clock_id_to_clk(secure_enable[idx]));
-		stm32mp_register_clock_parents_secure(secure_enable[idx]);
-	}
 
 	if (CFG_TEE_CORE_NB_CORE > 1)
 		clk_enable(stm32mp_rcc_clock_id_to_clk(RTCAPB));
@@ -3589,6 +3427,12 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
 		disable_rcc_tzen();
 	else
 		enable_rcc_tzen();
+
+	/*
+	 * Default disable MCKPROT, it may be enabled later from
+	 * STM32 remoteproc driver.
+	 */
+	stm32_rcc_set_mckprot(false);
 
 	rc = fdt_stm32_clk_parse(fdt, offs, pdata);
 	if (rc) {

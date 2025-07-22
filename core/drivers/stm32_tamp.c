@@ -9,7 +9,6 @@
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
 #include <drivers/gpio.h>
-#include <drivers/stm32_exti.h>
 #include <drivers/stm32_gpio.h>
 #include <drivers/stm32_rtc.h>
 #include <drivers/stm32_tamp.h>
@@ -25,6 +24,10 @@
 #if defined(CFG_STM32MP21)
 #include <drivers/stm32mp21_rcc.h>
 #endif
+#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
+#include <drivers/stm32mp2_tamp.h>
+#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21) */
+#include <drivers/stm32mp_dt_bindings.h>
 #include <io.h>
 #include <kernel/boot.h>
 #include <kernel/delay.h>
@@ -34,9 +37,9 @@
 #include <libfdt.h>
 #include <mm/core_memprot.h>
 #include <stdbool.h>
-#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
 #include <stm32_sysconf.h>
-#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21) */
 #include <stm32_util.h>
 
 
@@ -251,7 +254,6 @@
  * RIF miscellaneous
  */
 #define TAMP_RIF_RESOURCES		U(3)
-#define TAMP_NB_MAX_CID_SUPPORTED	U(7)
 
 enum stm32_tamp_out_id {
 	OUT_TAMP1 = LAST_TAMP,
@@ -1935,8 +1937,7 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
 	fdt_fill_device_info(fdt, &dt_tamp, node);
 
 	if (dt_tamp.reg == DT_INFO_INVALID_REG ||
-	    dt_tamp.reg_size == DT_INFO_INVALID_REG_SIZE ||
-	    dt_tamp.interrupt == DT_INFO_INVALID_INTERRUPT) {
+	    dt_tamp.reg_size == DT_INFO_INVALID_REG_SIZE) {
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
 
@@ -1948,7 +1949,6 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
 			return res;
 	}
 
-	pdata->it = dt_tamp.interrupt;
 	pdata->base.pa = dt_tamp.reg;
 	io_pa_or_va_secure(&pdata->base, dt_tamp.reg_size);
 
@@ -2006,23 +2006,11 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
 			rif_conf = fdt32_to_cpu(cuint[i]);
 
 			stm32_rif_parse_cfg(rif_conf, pdata->conf_data,
-					    TAMP_NB_MAX_CID_SUPPORTED,
 					    TAMP_RIF_RESOURCES);
 		}
 	}
 
 	parse_bkpregs_dt_conf(pdata, fdt, node);
-
-	if (pdata->is_wakeup_source && IS_ENABLED(CFG_STM32_EXTI)) {
-		res = dt_driver_device_from_node_idx_prop("wakeup-parent",
-							  fdt, node, 0,
-							  DT_DRIVER_INTERRUPT,
-							  &pdata->exti);
-		if (res == TEE_ERROR_DEFER_DRIVER_INIT)
-			return TEE_ERROR_DEFER_DRIVER_INIT;
-		if (res)
-			panic("DT property 'wakeup-source' requires 'wakeup-parent'");
-	}
 
 	return TEE_SUCCESS;
 }
@@ -2034,6 +2022,8 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
 	TEE_Result res = TEE_SUCCESS;
 	vaddr_t base = 0;
 	int subnode = -FDT_ERR_NOTFOUND;
+	struct itr_chip *chip = NULL;
+	size_t it_num = DT_INFO_INVALID_INTERRUPT;
 
 	/* Manage dependency on RNG driver */
 	res = dt_driver_get_crypto();
@@ -2042,6 +2032,10 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
 
 	/* Manage dependency on RTC driver */
 	res = stm32_rtc_driver_is_initialized();
+	if (res)
+		return res;
+
+	res = interrupt_dt_get_by_index(fdt, node, 0, &chip, &it_num);
 	if (res)
 		return res;
 
@@ -2069,18 +2063,10 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
 		goto err;
 	}
 
-#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
 	if (stm32_tamp.pdata.mask_pot_reset)
 		stm32mp_syscfg_write(SYSCFG_POTTAMPRSTCR, BIT(0), BIT(0));
-#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
-
-	/*
-	 * Select extra IP to add in the deleted/blocked IP in case of
-	 * tamper event
-	 *
-	 * No IP added.
-	 */
-	stm32_tamp_set_secret_list(&stm32_tamp, 0);
+#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21) */
 
 	if (stm32_tamp.pdata.compat->tags & TAMP_HAS_RIF_SUPPORT) {
 		apply_rif_config();
@@ -2112,6 +2098,14 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
 					 _TAMP_PRIVCFG_BKPWPRIV);
 	}
 
+	/*
+	 * Select extra IP to add in the deleted/blocked IP in case of
+	 * tamper event
+	 *
+	 * No IP added.
+	 */
+	stm32_tamp_set_secret_list(&stm32_tamp, 0);
+
 	if (!(stm32_tamp.pdata.compat->tags & TAMP_HAS_RIF_SUPPORT) ||
 	    stm32_tamp.pdata.is_tdcid) {
 		res = stm32_tamp_set_secure_bkpregs();
@@ -2119,25 +2113,20 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
 			goto err;
 	}
 
-	res = interrupt_alloc_add_handler(interrupt_get_main_chip(),
-					  stm32_tamp.pdata.it,
-					  stm32_tamp_it_handler,
-					  ITRF_TRIGGER_LEVEL, NULL,
-					  &stm32_tamp.itr);
+	res = interrupt_create_handler(chip, it_num, stm32_tamp_it_handler,
+				       NULL, ITRF_TRIGGER_LEVEL,
+				       &stm32_tamp.itr);
 	if (res)
 		goto err;
 
 	if (stm32_tamp.pdata.is_wakeup_source) {
-		struct stm32_tamp_compat *compat = stm32_tamp.pdata.compat;
-
-		if (IS_ENABLED(CFG_STM32_EXTI))
-			stm32_exti_enable_wake(stm32_tamp.pdata.exti,
-					       compat->exti_wakeup_line);
+		if (interrupt_can_set_wake(chip))
+			interrupt_set_wake(chip, it_num, true);
 		else
 			DMSG("TAMP event are not configured as wakeup source");
 	}
 
-	interrupt_enable(interrupt_get_main_chip(), stm32_tamp.itr->it);
+	interrupt_enable(chip, it_num);
 
 	res = stm32_configure_tamp(fdt, node);
 	if (res)
@@ -2165,10 +2154,14 @@ err:
 		free(stm32_tamp.pdata.conf_data->access_mask);
 	}
 
-	if (stm32_tamp.itr)
+	if (stm32_tamp.itr) {
+		interrupt_disable(chip, it_num);
 		interrupt_remove_free_handler(stm32_tamp.itr);
+	}
 
 	free(stm32_tamp.pdata.bkpregs_conf);
+
+	clk_disable(stm32_tamp.pdata.clock);
 
 	return res;
 }
@@ -2188,7 +2181,6 @@ static const struct stm32_tamp_compat mp13_compat = {
 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp13),
 		.pin_map = pin_map_mp13,
 		.pin_map_size = ARRAY_SIZE(pin_map_mp13),
-		.exti_wakeup_line = U(18),
 };
 
 static const struct stm32_tamp_compat mp15_compat = {
@@ -2200,7 +2192,6 @@ static const struct stm32_tamp_compat mp15_compat = {
 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp15),
 		.pin_map = pin_map_mp15,
 		.pin_map_size = ARRAY_SIZE(pin_map_mp15),
-		.exti_wakeup_line = U(18),
 };
 
 static const struct stm32_tamp_compat mp25_compat = {
@@ -2218,7 +2209,6 @@ static const struct stm32_tamp_compat mp25_compat = {
 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp25),
 		.pin_map = pin_map_mp25,
 		.pin_map_size = ARRAY_SIZE(pin_map_mp25),
-		.exti_wakeup_line = U(21),
 };
 
 static const struct stm32_tamp_compat mp23_compat = {

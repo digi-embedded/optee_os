@@ -18,6 +18,7 @@ properties:
     enum:
       - st,stm32-rng
       - st,stm32mp13-rng
+      - st,stm32mp21-rng
       - st,stm32mp25-rng
 
   reg:
@@ -57,7 +58,9 @@ allOf:
       properties:
         compatible:
           contains:
-            const: st,stm32mp25-rng
+            enum:
+              - st,stm32mp21-rng
+              - st,stm32mp25-rng
     then:
       properties:
         clocks:
@@ -70,6 +73,36 @@ allOf:
 
       required:
         - clock-names
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - st,stm32mp13-rng
+              - st,stm32mp21-rng
+              - st,stm32mp25-rng
+    then:
+      properties:
+        st,rng-cfg:
+          minItems: 1
+          maxItems: 3
+          type: boolean
+          description: The configuration bitfields to initialize the RNG. They
+                       must be listed in the numerical order. If not specified,
+                       the default hard-coded values will be used. Number of
+                       values depends on the presence of
+                       st,rng-nist-custom property.
+
+        st,rng-cfg-nist-custom:
+          type: boolean
+          description: Enable custom values for NIST compliant RNG.
+
+        st,rng-htcfg:
+          maxItems: 1
+          description: The values to configure health tests. If not specified,
+                       the default hard-coded values will be used.
+
 additionalProperties: false
 
 examples:

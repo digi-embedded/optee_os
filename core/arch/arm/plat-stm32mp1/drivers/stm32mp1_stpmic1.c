@@ -8,15 +8,14 @@
 #include <drivers/regulator.h>
 #include <drivers/stm32_i2c.h>
 #include <drivers/stm32mp1_stpmic1.h>
-#include <drivers/stm32mp1_pwr.h>
 #include <drivers/stpmic1.h>
 #include <drivers/stpmic1_regulator.h>
 #include <dt-bindings/mfd/st,stpmic1.h>
 #include <io.h>
 #include <keep.h>
 #include <kernel/boot.h>
-#include <kernel/delay.h>
 #include <kernel/dt.h>
+#include <kernel/interrupt.h>
 #include <kernel/notif.h>
 #include <kernel/panic.h>
 #include <kernel/pm.h>
@@ -304,40 +303,6 @@ static int save_cpu_supply_name(void)
 const char *stm32mp_pmic_get_cpu_supply_name(void)
 {
 	return cpu_supply_name;
-}
-
-/* Preallocate not that much regu references */
-static char *nsec_access_regu_name[PMIC_REGU_COUNT];
-
-bool stm32mp_nsec_can_access_pmic_regu(const char *name)
-{
-	size_t n = 0;
-
-	for (n = 0; n < ARRAY_SIZE(nsec_access_regu_name); n++)
-		if (nsec_access_regu_name[n] &&
-		    !strcmp(nsec_access_regu_name[n], name))
-			return true;
-
-	return false;
-}
-
-static void register_nsec_regu(const char *name_ref)
-{
-	size_t n = 0;
-
-	assert(!stm32mp_nsec_can_access_pmic_regu(name_ref));
-
-	for (n = 0; n < ARRAY_SIZE(nsec_access_regu_name); n++) {
-		if (!nsec_access_regu_name[n]) {
-			nsec_access_regu_name[n] = strdup(name_ref);
-
-			if (!nsec_access_regu_name[n])
-				panic();
-			break;
-		}
-	}
-
-	assert(stm32mp_nsec_can_access_pmic_regu(name_ref));
 }
 
 static TEE_Result pmic_set_state(struct regulator *regulator, bool enable)
@@ -700,9 +665,6 @@ static void parse_regulator_fdt_nodes(const void *fdt, int pmic_node)
 
 		assert(stpmic1_regulator_is_valid(regu_name));
 
-		if (status & DT_STATUS_OK_NSEC)
-			register_nsec_regu(regu_name);
-
 		for (n = 0; n < ARRAY_SIZE(regu_lp_state); n++)
 			dt_get_regu_low_power_config(fdt, regu_name, regu_node,
 						     regu_lp_state[n].name);
@@ -761,28 +723,6 @@ void stm32mp_put_pmic(void)
 		stm32_i2c_suspend(i2c_handle);
 }
 
-static void register_non_secure_pmic(void)
-{
-	/* Allow this function to be called when STPMIC1 not used */
-	if (!i2c_handle->base.pa)
-		return;
-
-	stm32mp_register_non_secure_pinctrl(i2c_handle->pinctrl);
-	if (i2c_handle->pinctrl_sleep)
-		stm32mp_register_non_secure_pinctrl(i2c_handle->pinctrl_sleep);
-
-	stm32mp_register_non_secure_periph_iomem(i2c_handle->base.pa);
-}
-
-static void register_secure_pmic(void)
-{
-	stm32mp_register_secure_pinctrl(i2c_handle->pinctrl);
-	if (i2c_handle->pinctrl_sleep)
-		stm32mp_register_secure_pinctrl(i2c_handle->pinctrl_sleep);
-
-	stm32mp_register_secure_periph_iomem(i2c_handle->base.pa);
-}
-
 static void init_pmic_secure_state(void)
 {
 	if (i2c_handle->i2c_secure)
@@ -809,17 +749,12 @@ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
 	DMSG("PMIC version = 0x%02lx", pmic_version);
 	stm32mp_put_pmic();
 
-	if (pmic_is_secure())
-		register_secure_pmic();
-	else
-		register_non_secure_pmic();
-
 	parse_regulator_fdt_nodes(fdt, pmic_node);
 
 	return TEE_SUCCESS;
 }
 
-static enum itr_return stpmic1_irq_handler(struct itr_handler *handler __unused)
+static void pmic_event_handler(void)
 {
 	uint8_t read_val = 0U;
 	unsigned int i = 0U;
@@ -868,40 +803,84 @@ static enum itr_return stpmic1_irq_handler(struct itr_handler *handler __unused)
 		 (latch4 != 0));
 
 	stm32mp_put_pmic();
+}
+
+static void enable_stpmic1_interrupt(void)
+{
+	struct pmic_it_handle_s *prv = NULL;
+	stm32mp_get_pmic();
+
+	/* Enable requested interrupt */
+	SLIST_FOREACH(prv, &pmic_it_handle_list, link) {
+		if (stpmic1_register_update(prv->pmic_reg,
+					    BIT(prv->pmic_bit),
+					    BIT(prv->pmic_bit)))
+			panic();
+	}
+
+	stm32mp_put_pmic();
+}
+
+static void yielding_stm32mp1_stpmic1_notif(struct notif_driver *ndrv __unused,
+					    enum notif_event ev)
+{
+	switch (ev) {
+	case NOTIF_EVENT_DO_BOTTOM_HALF:
+		pmic_event_handler();
+		break;
+	case NOTIF_EVENT_STOPPED:
+		/*
+		 * Treat events pending by the time NOTIF_EVENT_SOPPED
+		 * is handled by OP-TEE notif framework.
+		 */
+		pmic_event_handler();
+		break;
+	default:
+		EMSG("Unknown event %d", ev);
+		panic();
+	}
+}
+
+static bool atomic_stm32mp1_stpmic1_notif(struct notif_driver *ndrv __unused,
+					  enum notif_event ev __maybe_unused)
+{
+	assert(ev == NOTIF_EVENT_STARTED);
+
+	return true;
+}
+DECLARE_KEEP_PAGER(atomic_stm32mp1_stpmic1_notif);
+
+/* Structure below is not const to prevent it spreads in the unpaged sections */
+static struct notif_driver stm32mp1_stpmic1_notif = {
+	.atomic_cb = atomic_stm32mp1_stpmic1_notif,
+	.yielding_cb = yielding_stm32mp1_stpmic1_notif,
+};
+
+static enum itr_return pmic_it_handler(struct itr_handler *handler __unused)
+{
+	if (notif_async_is_started())
+		notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
+	else
+		pmic_event_handler();
 
 	return ITRR_HANDLED;
 }
+DECLARE_KEEP_PAGER(pmic_it_handler);
 
 static TEE_Result stm32_pmic_init_it(const void *fdt, int node)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
 	const uint32_t *notif_ids = NULL;
+	struct itr_chip *itr_chip = NULL;
+	size_t itr_num = 0;
 	int nb_notif = 0;
-	size_t pwr_it = 0;
-	struct itr_handler *hdl = NULL;
-	const fdt32_t *cuint = NULL;
-	uint32_t phandle = 0;
-	int wakeup_parent_node = 0;
-	int len = 0;
 
-	cuint = fdt_getprop(fdt, node, "wakeup-parent", &len);
-	if (!cuint || len != sizeof(uint32_t))
-		panic("Missing wakeup-parent");
+	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
+		notif_register_driver(&stm32mp1_stpmic1_notif);
 
-	phandle = fdt32_to_cpu(*cuint);
-	if (!dt_driver_get_provider_by_phandle(phandle,
-					       DT_DRIVER_NOTYPE))
-		return TEE_ERROR_DEFER_DRIVER_INIT;
-
-	wakeup_parent_node = fdt_node_offset_by_phandle(fdt, phandle);
-
-	cuint = fdt_getprop(fdt, node, "st,wakeup-pin-number", NULL);
-	if (!cuint) {
-		DMSG("Missing wake-up pin description");
-		return TEE_SUCCESS;
-	}
-
-	pwr_it = fdt32_to_cpu(*cuint) - 1U;
+	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+	if (res)
+		return res;
 
 	notif_ids = fdt_getprop(fdt, node, "st,notif-it-id", &nb_notif);
 	if (!notif_ids)
@@ -921,7 +900,6 @@ static TEE_Result stm32_pmic_init_it(const void *fdt, int node)
 			panic("st,notif-it-id incorrect description");
 
 		for (i = 0; i < (nb_notif / sizeof(uint32_t)); i++) {
-			uint8_t val = 0;
 			uint8_t pmic_it = 0;
 
 			prv = calloc(1, sizeof(*prv));
@@ -938,35 +916,29 @@ static TEE_Result stm32_pmic_init_it(const void *fdt, int node)
 
 			SLIST_INSERT_HEAD(&pmic_it_handle_list, prv, link);
 
-			stm32mp_get_pmic();
-
-			/* Enable requested interrupt */
-			if (stpmic1_register_read(prv->pmic_reg, &val))
-				panic();
-
-			val |= BIT(prv->pmic_bit);
-
-			if (stpmic1_register_write(prv->pmic_reg, val))
-				panic();
-
-			stm32mp_put_pmic();
-
 			FMSG("STPMIC1 forwards irq reg:%u bit:%u as notif:%u",
 			     prv->pmic_reg, prv->pmic_bit, prv->notif_id);
 		}
 	}
 
-	res = stm32mp1_pwr_itr_alloc_add(fdt, wakeup_parent_node, pwr_it,
-					 stpmic1_irq_handler,
-					 PWR_WKUP_FLAG_FALLING |
-					 PWR_WKUP_FLAG_THREADED,
-					 NULL, &hdl);
+	res = interrupt_create_handler(itr_chip, itr_num, pmic_it_handler,
+				       NULL, 0, NULL);
 	if (res)
-		panic("pmic: Could not allocate itr");
+		panic("pmic: Could not create interrupt handler");
 
-	stm32mp1_pwr_itr_enable(hdl->it);
+	stm32_i2c_interrupt_access_lockdeps(i2c_handle, itr_chip, itr_num);
 
-	return res;
+	enable_stpmic1_interrupt();
+
+	interrupt_enable(itr_chip, itr_num);
+	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
+		if (interrupt_can_set_wake(itr_chip))
+			interrupt_set_wake(itr_chip, itr_num, true);
+		else
+			DMSG("PMIC wakeup source ignored");
+	}
+
+	return TEE_SUCCESS;
 }
 
 static TEE_Result stm32_pmic_probe(const void *fdt, int node,

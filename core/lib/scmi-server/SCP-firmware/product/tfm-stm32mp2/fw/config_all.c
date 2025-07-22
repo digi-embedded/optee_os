@@ -451,8 +451,8 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
         .agent_table = scmi_agent_table,
         .agent_count = scmi_agent_count-1,
         .protocol_count_max = 9,
-        .vendor_identifier = "STMicroelectronics",
-        .sub_vendor_identifier = "STMicroelectronics",
+        .vendor_identifier = "ST",
+        .sub_vendor_identifier = "ST",
     };
     channel_index = 0;
 
@@ -504,6 +504,7 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
 #endif
 #ifdef CFG_SCPFW_MOD_TFM_SMT
             case STM32MP25_AGENT_ID_CA35 :
+            case STM32MP25_AGENT_ID_CA35_BL31:
                 *service_data = (struct mod_scmi_service_config){
                     .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
                     .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
@@ -530,6 +531,7 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
                         .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
                         .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
                                                                    MOD_TFM_SMT_API_IDX_DRIVER_INPUT),
+                        .chan_mbx = channel_cfg->chan_mbx,
                     };
                 tfm_smt_index++;
                 break;
@@ -740,6 +742,8 @@ static void set_resources(struct scpfw_config *cfg)
                     mod_stm32_pd_config->name = scmi_pd->name;
                     mod_stm32_pd_config->clk = scmi_pd->clk;
                     mod_stm32_pd_config->regu = scmi_pd->regu;
+                    mod_stm32_pd_config->firewall = scmi_pd->firewall;
+                    mod_stm32_pd_config->n_firewall = scmi_pd->n_firewall;
 
                     stm32_pd_elt_k->name = scmi_pd->name;
                     stm32_pd_elt_k->data = (void *)mod_stm32_pd_config;

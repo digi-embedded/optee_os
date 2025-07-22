@@ -12,6 +12,19 @@
 #include <types_ext.h>
 
 /* BSEC_DEBUG */
+#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
+#define BSEC_DBGENA			BIT(1)
+#define BSEC_NIDENA			BIT(2)
+#define BSEC_DEVICEEN			BIT(3)
+#define BSEC_HDPEN			BIT(4)
+#define BSEC_SPIDENA			BIT(5)
+#define BSEC_SPNIDENA			BIT(6)
+#define BSEC_DBGSWEN			BIT(7)
+#define BSEC_DBGENM			BIT(8)
+#define BSEC_NIDENM			BIT(9)
+#define BSEC_SPIDENM			BIT(10)
+#define BSEC_SPNIDENM			BIT(11)
+#else /* STM32MP1x */
 #define BSEC_HDPEN			BIT(4)
 #define BSEC_SPIDEN			BIT(5)
 #define BSEC_SPINDEN			BIT(6)
@@ -20,6 +33,21 @@
 					 BSEC_SPIDEN | \
 					 BSEC_SPINDEN | \
 					 BSEC_DBGSWGEN)
+#endif
+#if defined(CFG_STM32MP21)
+#define BSEC_AUTH_UNLOCK_MSK		GENMASK_32(15, 8)
+#define BSEC_AUTH_UNLOCK(val)		(((val) << 8) & BSEC_AUTH_UNLOCK_MSK)
+#define BSEC_AUTH_HDPL_MSK		GENMASK_32(23, 16)
+#define BSEC_AUTH_HDPL(val)		(((val) << 16) & BSEC_AUTH_HDPL_MSK)
+#define BSEC_AUTH_SEC_MSK		GENMASK_32(31, 24)
+#define BSEC_AUTH_SEC(val)		(((val) << 24) & BSEC_AUTH_SEC_MSK)
+#define BSEC_AUTH_UNLOCKED		0xb4
+#define BSEC_AUTH_LOCKED		0xff
+#define BSEC_AUTH_HDPL0			0xb4
+#define BSEC_AUTH_HDPL1			0x51
+#define BSEC_AUTH_HDPL2			0x8a
+#define BSEC_AUTH_HDPL3			0x6f
+#endif
 
 #define BSEC_BITS_PER_WORD		(8U * sizeof(uint32_t))
 #define BSEC_BYTES_PER_WORD		sizeof(uint32_t)
@@ -35,13 +63,13 @@ enum stm32_bsec_sec_state {
  * Structure and API function for BSEC driver to get some platform data.
  *
  * @base: BSEC interface registers physical base address
- * @shadow: BSEC shadow base address
+ * @mirror: BSEC mirror base address
  * @upper_start: Base ID for the BSEC upper words in the platform
  * @max_id: Max value for BSEC word ID for the platform
  */
 struct stm32_bsec_static_cfg {
 	paddr_t base;
-	paddr_t shadow;
+	paddr_t mirror;
 	unsigned int upper_start;
 	unsigned int max_id;
 };
@@ -70,6 +98,15 @@ TEE_Result stm32_bsec_shadow_register(uint32_t otp_id);
  * Return a TEE_Result compliant return value
  */
 TEE_Result stm32_bsec_read_otp(uint32_t *value, uint32_t otp_id);
+
+/*
+ * Read a range of OTP data values thanks to the name of the cell
+ * @name: Name of the cell describing the OTP range
+ * @len : Size of the OTP range to read
+ * @values : Output read values
+ */
+TEE_Result stm32_bsec_read_otp_range_by_name(const char *name,
+					     size_t len, uint8_t **values);
 
 /*
  * Write value in BSEC data register
@@ -118,6 +155,31 @@ TEE_Result stm32_bsec_write_debug_conf(uint32_t value);
 
 /* Return debug configuration read from BSEC */
 uint32_t stm32_bsec_read_debug_conf(void);
+
+#ifdef CFG_STM32MP21
+/*
+ * Enable/disable debug with temporal isolation level for Cortex-A and Cortex-M
+ * @ca_value: Value to write in BSEC debug control register for Cortex-A
+ * @cm_value: Value to write in BSEC debug control register for Cortex-M
+ * Return a TEE_Result compliant return value
+ */
+TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value);
+
+/*
+ * Parse permissions mask and prepare values to feed stm32_bsec_write_debug_conf
+ * and stm32_bsec_write_debug_ctrl functions to enable/disable debug
+ * @perm_mask: Permissions mask to enable/disable debug features
+ * @dbg_en_val: (out) Value to write in BSEC debug enable register
+ * @dbg_a_ctrl_val: (out) Value to write in BSEC debug control register for
+ *			  Cortex-A
+ * @dbg_m_ctrl_val: (out) Value to write in BSEC debug control register for
+ *			  Cortex-M
+ */
+void stm32_bsec_parse_permissions(uint32_t perm_mask,
+				  uint32_t *dbg_en_val,
+				  uint32_t *dbg_a_ctrl_val,
+				  uint32_t *dbg_m_ctrl_val);
+#endif
 
 /*
  * Write shadow-read lock
@@ -193,6 +255,11 @@ bool stm32_bsec_self_hosted_debug_is_enabled(void);
  * Program BSEC for dummy ADAC (open access to every AP).
  */
 void stm32_bsec_mp21_dummy_adac(void);
+
+/*
+ * Program BSEC to open DBGMCU_APB_AP (AP0)
+ */
+void stm32_bsec_mp21_ap0_unlock(void);
 
 /*
  * Find and get OTP location from its name.

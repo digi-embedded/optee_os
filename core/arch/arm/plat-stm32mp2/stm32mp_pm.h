@@ -14,7 +14,7 @@
  * 0: CPU1 core#0 or core#1   (Stop1 or LP-Stop1)
  * 1: D1 domain               (LPLV-Stop1)
  * 2: LPLV D1                 (Stop2 or LP-Stop2)
- * 3: D2                      (LPLV-Stop1)
+ * 3: D2                      (LPLV-Stop2)
  * 4: LPLV D2                 (Standby)
  * 5: MAX                     (PowerOff)
  *
