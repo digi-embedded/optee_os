@@ -518,6 +518,13 @@
 				st,pll = <&pll1_cfg_1200Mhz>;
 			};
 		};
+		st,ck_gpu {
+			/* STM32MP25xC 800 MHz, up to 133 Mtriangle/s or 800 Mpixel/s */
+			cfg_1 {
+				hz = <800000000>;
+				st,pll = <&pll3_cfg_800Mhz>;
+			};
+		};
 	};
 };
 

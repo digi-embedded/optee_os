@@ -503,6 +503,13 @@
 				st,pll = <&pll1_cfg_1200Mhz>;
 			};
 		};
+		st,ck_gpu {
+			/* STM32MP235C 400 MHz, up to 66.5 Mtriangle/s or 400 Mpixel/s */
+			cfg_1 {
+				hz = <400000000>;
+				st,pll = <&pll3_cfg_400Mhz>;
+			};
+		};
 	};
 };
 
