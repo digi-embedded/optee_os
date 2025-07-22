@@ -286,7 +286,6 @@
 				regulator-name = "vdd3v3_usb";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
-				regulator-always-on;
 				regulator-over-current-protection;
 			};
 			vpp_ddr: ldo5 {
@@ -421,7 +420,6 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		vdd33ucpd-supply = <&vdd3v3_usb>;
-		regulator-always-on;
 	};
 
 	vdda18adc: vdda18adc {
