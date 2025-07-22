@@ -381,7 +381,7 @@
 
 &pwr_irq {
 	status = "okay";
-	wakeup-gpios = <&gpiof 8 GPIO_ACTIVE_HIGH>;
+	wakeup-gpios = <&gpiof 8 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
 };
 
 &pwr_regulators {
@@ -478,7 +478,7 @@
 	};
 
 	/* VCO = 1300.0 MHz => P = 650 (CPU) */
-	pll1:st,pll@0 {
+	pll1: st,pll@0 {
 		compatible = "st,stm32mp1-pll";
 		reg = <0>;
 
@@ -491,51 +491,50 @@
 	};
 
 	/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 266, R = 533 (DDR) */
-	pll2:st,pll@1 {
+	pll2: st,pll@1 {
 		compatible = "st,stm32mp1-pll";
 		reg = <1>;
 
-		st,pll = < &pll2_cfg1 >;
+		st,pll = <&pll2_cfg1>;
 
 		pll2_cfg1: pll2_cfg1 {
-			st,pll_vco = < &pll2_vco_1066Mhz >;
-			st,pll_div_pqr = < 1 1 0 >;
+			st,pll_vco = <&pll2_vco_1066Mhz>;
+			st,pll_div_pqr = <1 1 0>;
 		};
 	};
 
 	/* VCO = 417.8 MHz => P = 209, Q = 12.28, R = 11 */
-	pll3:st,pll@2 {
+	pll3: st,pll@2 {
 		compatible = "st,stm32mp1-pll";
 		reg = <2>;
 
-		st,pll = < &pll3_cfg1 >;
+		st,pll = <&pll3_cfg1>;
 
 		pll3_cfg1: pll3_cfg1 {
-			st,pll_vco = < &pll3_vco_417_8Mhz >;
-			st,pll_div_pqr = < 1 33 36 >;
+			st,pll_vco = <&pll3_vco_417_8Mhz>;
+			st,pll_div_pqr = <1 33 36>;
 		};
 	};
 
 	/* VCO = 600.0 MHz => P = 50, Q = 10, R = 50 */
-	pll4:st,pll@3 {
+	pll4: st,pll@3 {
 		compatible = "st,stm32mp1-pll";
 		reg = <3>;
-		st,pll = < &pll4_cfg1 >;
+		st,pll = <&pll4_cfg1>;
 
 		pll4_cfg1: pll4_cfg1 {
-			st,pll_vco = < &pll4_vco_600Mhz >;
-			st,pll_div_pqr = < 11 59 11 >;
+			st,pll_vco = <&pll4_vco_600Mhz>;
+			st,pll_div_pqr = <11 59 11>;
 		};
 	};
 
 	st,clk_opp {
 		/* CK_MPU clock config for MP13 */
 		st,ck_mpu {
-
 			cfg_1 {
-				hz = < 650000000 >;
-				st,clksrc = < CLK_MPU_PLL1P >;
-				st,pll = < &pll1_cfg1 >;
+				hz = <650000000>;
+				st,clksrc = <CLK_MPU_PLL1P>;
+				st,pll = <&pll1_cfg1>;
 			};
 		};
 	};
@@ -563,7 +562,7 @@
 		reg = <VOLTD_SCMI_STPMIC1_BUCK1>;
 		voltd-supply = <&vddcpu>;
 	};
-	voltd-vdd_ddr {
+	voltd-vdd-ddr {
 		reg = <VOLTD_SCMI_STPMIC1_BUCK2>;
 		voltd-supply = <&vdd_ddr>;
 	};
@@ -575,7 +574,7 @@
 		reg = <VOLTD_SCMI_STPMIC1_BUCK4>;
 		voltd-supply = <&vddcore>;
 	};
-	voltd-vdd_adc {
+	voltd-vdd-adc {
 		reg = <VOLTD_SCMI_STPMIC1_LDO1>;
 		voltd-supply = <&vdd_adc>;
 	};
@@ -583,11 +582,11 @@
 		reg = <VOLTD_SCMI_STPMIC1_LDO2>;
 		voltd-supply = <&ldo2>;
 	};
-	voltd-vdd_usb {
+	voltd-vdd-usb {
 		reg = <VOLTD_SCMI_STPMIC1_LDO4>;
 		voltd-supply = <&vdd_usb>;
 	};
-	voltd-vdd_sd {
+	voltd-vdd-sd {
 		reg = <VOLTD_SCMI_STPMIC1_LDO5>;
 		voltd-supply = <&vdd_sd>;
 	};
@@ -595,11 +594,11 @@
 		reg = <VOLTD_SCMI_STPMIC1_LDO6>;
 		voltd-supply = <&ldo6>;
 	};
-	voltd-vbus_otg {
+	voltd-vbus-otg {
 		reg = <VOLTD_SCMI_STPMIC1_PWR_SW1>;
 		voltd-supply = <&vbus_otg>;
 	};
-	voltd-vbus_sw {
+	voltd-vbus-sw {
 		reg = <VOLTD_SCMI_STPMIC1_PWR_SW2>;
 		voltd-supply = <&vbus_sw>;
 	};
@@ -615,9 +614,11 @@
 
 &tamp {
 	status = "okay";
-	st,tamp_passive_nb_sample = <4>;
-	st,tamp_passive_sample_clk_div = <16384>;
+	st,tamp-passive-nb-sample = <4>;
+	st,tamp-passive-sample-clk-div = <16384>;
+	wakeup-source;
 
+	/* Tamper button */
 	tamp-button {
 		tamper-gpios = <&gpiob 2 0>;
 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
@@ -635,7 +636,7 @@
 };
 
 &tzc400 {
-	memory-region =	<&optee_framebuffer>;
+	memory-region = <&optee_framebuffer>;
 };
 
 &uart5 {
