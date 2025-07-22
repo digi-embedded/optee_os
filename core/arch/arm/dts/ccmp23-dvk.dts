@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /*
  * Copyright (C) STMicroelectronics 2021 - All Rights Reserved
- * Copyright (C) 2024, Digi International Inc - All Rights Reserved
+ * Copyright (C) 2024, 2025, Digi International Inc - All Rights Reserved
  */
 
 /dts-v1/;
@@ -497,38 +497,47 @@
 	status = "okay";
 };
 
-&scmi_regu {
-	voltd-vddcore {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
-		voltd-supply = <&vddcore>;
-	};
-	voltd-v1v8 {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
-		voltd-supply = <&v1v8>;
-	};
-	voltd-v3v3 {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
-		voltd-supply = <&v3v3>;
-	};
-	voltd-vdd-emmc {
-		reg = <VOLTD_SCMI_STPMIC2_LDO2>;
-		voltd-supply = <&vdd_emmc>;
-	};
-	voltd-vdd3v3-usb {
-		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
-		voltd-supply = <&vdd3v3_usb>;
-	};
-	voltd-ldo6 {
-		reg = <VOLTD_SCMI_STPMIC2_LDO6>;
-		voltd-supply = <&ldo6>;
-	};
-	voltd-ldo7 {
-		reg = <VOLTD_SCMI_STPMIC2_LDO7>;
-		voltd-supply = <&ldo7>;
-	};
-	voltd-v1v8-rf {
-		reg = <VOLTD_SCMI_STPMIC2_LDO8>;
-		voltd-supply = <&ldo8_1v8_rf>;
+&scmi_regulator {
+	regulators {
+		regulator@b {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
+			voltd-supply = <&vddcore>;
+		};
+
+		regulator@e {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
+			voltd-supply = <&v1v8>;
+		};
+
+		regulator@10 {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
+			voltd-supply = <&v3v3>;
+		};
+
+		regulator@12 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO2>;
+			voltd-supply = <&vdd_emmc>;
+		};
+
+		regulator@14 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO4>;
+			voltd-supply = <&vdd3v3_usb>;
+		};
+
+		regulator@16 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO6>;
+			voltd-supply = <&ldo6>;
+		};
+
+		regulator@17 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO7>;
+			voltd-supply = <&ldo7>;
+		};
+
+		regulator@18 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO8>;
+			voltd-supply = <&ldo8_1v8_rf>;
+		};
 	};
 };
 
