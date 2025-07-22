@@ -583,7 +583,6 @@
 
 &tamp {
 	wakeup-source;
-	wakeup-parent = <&exti2>;
 	st,tamp-passive-precharge = <2>;
 	st,tamp-passive-nb-sample = <4>;
 	st,tamp-passive-sample-clk-div = <16384>;
