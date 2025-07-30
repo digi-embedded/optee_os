@@ -546,6 +546,10 @@
 
 &scmi_regulator {
 	regulators {
+		regulator@9 {
+			reg = <VOLTD_SCMI_VREFBUF>;
+			voltd-supply = <&vrefbuf>;
+		};
 		regulator@b {
 			reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
 			voltd-supply = <&vddcore>;
@@ -607,5 +611,10 @@
 &usart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&usart2_pins_a>;
+	status = "okay";
+};
+
+/* Enable VREFBUF ADC reference voltage */
+&vrefbuf{
 	status = "okay";
 };
