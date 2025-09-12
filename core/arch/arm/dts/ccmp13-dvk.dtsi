@@ -618,8 +618,8 @@
 	st,tamp-passive-sample-clk-div = <16384>;
 	wakeup-source;
 
-	/* Tamper button */
-	tamp-button {
+	/* Tamper passive configuration */
+	tamp-passive {
 		tamper-gpios = <&gpiob 2 0>;
 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
 		st,tamp-id = <7>;
