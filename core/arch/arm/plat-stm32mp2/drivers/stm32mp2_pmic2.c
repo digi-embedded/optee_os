@@ -68,9 +68,11 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
 {
 	struct regulator *regulator = pm_handle->handle;
 	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
-	uint8_t mode = STM32_PM_DEFAULT;
+	TEE_Result res = TEE_ERROR_GENERIC;
 
 	if (op == PM_OP_SUSPEND) {
+		uint8_t mode = STM32_PM_DEFAULT;
+
 		/* configure PMIC level according MAX PM domain OFF */
 		switch (pwrlvl) {
 		case PM_D1_LEVEL:
@@ -87,11 +89,17 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
 			mode = STM32_PM_DEFAULT;
 			break;
 		}
+		res = stm32_pmic2_apply_pm_state(regulator, mode);
+
 	} else if (op == PM_OP_RESUME) {
-		mode = STM32_PM_DEFAULT;
+		res = stm32_pmic2_resume_regulator(regulator);
+		if (res)
+			return res;
+
+		res = stm32_pmic2_apply_pm_state(regulator, STM32_PM_DEFAULT);
 	}
 
-	return stm32_pmic2_apply_pm_state(regulator, mode);
+	return res;
 }
 
 TEE_Result plat_pmic2_supplied_init(struct regulator *regulator)

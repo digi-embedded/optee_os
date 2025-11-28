@@ -6,6 +6,7 @@
 
 #include <clk.h>
 #include <regulator.h>
+#include <firewall.h>
 
 #include <mod_power_domain.h>
 #include <mod_stm32_pd.h>
@@ -55,12 +56,35 @@ static int stm32_pd_reset(fwk_id_t pd_id)
     return FWK_E_SUPPORT;
 }
 
+/*
+ * stm32_pd_set_state_gpu
+ *
+ * A firewall configuration may be defined to fix Errata Section 2 3 5
+ * cf: https://www.st.com/resource/en/errata_sheet/es0598-stm32mp251x3x5x7x-device-errata-stmicroelectronics.pdf
+ * Compartment filtering of PWR_CR11 and PWR_CR12 registers is not functional
+ *
+ * Description:
+ * Once the compartment filtering is enabled on PWR_CR11 (RCC internal
+ * resource 104) and PWR_CR12 (RIFSC peripheral #79), the registers are
+ * not writeable by any CIDs even the permitted one.
+ *
+ * Workaround:
+ * CID filtering should be disabled before accessing PWR_CR11 and PWR_CR12 registers.
+ *
+ * - Set errata configuration (defined in DT) to disable filtering.
+ * - Access to clock and regulator
+ * - Release this configuration to return at initial runtime configuration.
+ */
 static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
 {
     struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
-    struct clk *clk = ctx->config->clk;
-    const struct device *regu = ctx->config->regu;
-    int status;
+    const struct mod_stm32_pd_config *cfg = ctx->config;
+    const struct device *regu = cfg->regu;
+    struct firewall_spec *firewall;
+    struct clk *clk = cfg->clk;
+    int status = FWK_E_DEVICE;
+    int i;
+    int err;
 
     fwk_assert(ctx->pd_driver_input_api != NULL);
     fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
@@ -70,16 +94,28 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
         return FWK_SUCCESS;
     }
 
+    err = set_for_each_firewall(cfg->firewall, firewall, cfg->n_firewall, i);
+    if (err) {
+        FWK_LOG_ERR("%s: set firewall[%d] fail, err:%d", __func__, i, err);
+        status = FWK_E_DEVICE;
+        goto out;
+    }
+
     switch (state) {
         case MOD_PD_STATE_ON:
             if (regu != NULL && regulator_enable(regu) != 0) {
-                return FWK_E_DEVICE;
+                status = FWK_E_DEVICE;
+                break;
             }
+
             if (clk != NULL && clk_enable(clk) != 0) {
                 if (regu != NULL)
                     regulator_disable(regu);
-                return FWK_E_DEVICE;
+
+                status = FWK_E_DEVICE;
+                break;
             }
+            status = FWK_SUCCESS;
             break;
         case MOD_PD_STATE_OFF:
             if (clk != NULL) {
@@ -89,15 +125,27 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
                 if (clk != NULL) {
                     clk_enable(clk);
                 }
-                return FWK_E_DEVICE;
+
+                status = FWK_E_DEVICE;
+                break;
             }
+            status = FWK_SUCCESS;
             break;
         default:
             FWK_LOG_ERR("State %d not supported on power domain %s",
                         state,
                         fwk_module_get_element_name(pd_id));
-            return FWK_E_SUPPORT;
     }
+
+out:
+    err = release_for_each_firewall(cfg->firewall, firewall, cfg->n_firewall, i);
+    if (err) {
+        FWK_LOG_ERR("%s: release firewall[%d] fail, err:%d", __func__, i, err);
+        status = FWK_E_DEVICE;
+    }
+
+    if (status != FWK_SUCCESS)
+        return status;
 
     status = ctx->pd_driver_input_api->report_power_state_transition(
         ctx->requester_id,

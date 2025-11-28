@@ -65,6 +65,7 @@
 #define ETH1_BASE			0x5800A000
 #define ETH2_BASE			0x5800E000
 #define ETZPC_BASE			0x5c007000
+#define EXTI_BASE			0x5000d000
 #define FMC_BASE			0x58002000
 #define GIC_BASE			0xa0021000ul
 #define GPIOA_BASE			0x50002000
@@ -202,8 +203,6 @@
 #define GIC_NON_SEC_SGI_0		0
 #define GIC_SEC_SGI_0			8
 #define GIC_SEC_SGI_1			9
-
-#define GIC_MPU_WAKEUP_PIN		157
 
 #define STM32MP_GIC_PRIORITY_CSTOP	U(0xC0)
 

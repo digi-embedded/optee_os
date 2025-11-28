@@ -11,6 +11,8 @@
 #include <fwk_mm.h>
 #include <fwk_module.h>
 
+#include <arch_main.h>
+
 #include <mod_scmi_std.h>
 #include <mod_voltage_domain.h>
 #include <mod_optee_voltd_regulator.h>
@@ -85,6 +87,7 @@ static int optee_voltd_regulator_set_config(fwk_id_t dev_id,
                                             uint8_t mode_id)
 {
     struct optee_voltd_regulator_dev_ctx *ctx;
+    TEE_Result res;
 
     ctx = get_ctx(dev_id);
     if (ctx == NULL) {
@@ -107,8 +110,9 @@ static int optee_voltd_regulator_set_config(fwk_id_t dev_id,
     switch (mode_id) {
     case MOD_VOLTD_MODE_ID_ON:
         if (!ctx->enabled) {
-            if (regulator_enable(ctx->regulator) != TEE_SUCCESS) {
-                return FWK_E_DEVICE;
+            res = regulator_enable(ctx->regulator);
+            if (res != TEE_SUCCESS) {
+                return scmi_tee_result_to_fwk_status(res);
             }
 
             ctx->enabled = true;
@@ -117,8 +121,9 @@ static int optee_voltd_regulator_set_config(fwk_id_t dev_id,
 
     case MOD_VOLTD_MODE_ID_OFF:
         if (ctx->enabled) {
-            if (regulator_disable(ctx->regulator) != TEE_SUCCESS) {
-                return FWK_E_DEVICE;
+            res = regulator_disable(ctx->regulator);
+            if (res != TEE_SUCCESS) {
+                return scmi_tee_result_to_fwk_status(res);
             }
 
             ctx->enabled = false;
@@ -168,6 +173,7 @@ static int optee_voltd_regulator_set_level(fwk_id_t dev_id,
                                            int level_uv)
 {
     struct optee_voltd_regulator_dev_ctx *ctx;
+    TEE_Result res;
 
     ctx = get_ctx(dev_id);
     if (ctx == NULL) {
@@ -178,8 +184,9 @@ static int optee_voltd_regulator_set_level(fwk_id_t dev_id,
         return FWK_E_ACCESS;
     }
 
-    if (regulator_set_voltage(ctx->regulator, level_uv) != TEE_SUCCESS) {
-        return FWK_E_DEVICE;
+    res = regulator_set_voltage(ctx->regulator, level_uv);
+    if (res != TEE_SUCCESS) {
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     FWK_LOG_DEBUG(
@@ -275,7 +282,7 @@ static int optee_voltd_regulator_level_from_index(fwk_id_t dev_id,
 
     res = regulator_supported_voltages(ctx->regulator, &desc, &levels);
     if (res != TEE_SUCCESS) {
-        return FWK_E_SUPPORT;
+        return scmi_tee_result_to_fwk_status(res);
     }
 
     if (desc->type != VOLTAGE_TYPE_FULL_LIST) {
@@ -329,6 +336,7 @@ static int optee_voltd_regulator_element_init(fwk_id_t element_id,
 {
     const struct mod_optee_voltd_regulator_dev_config *dev_config;
     struct optee_voltd_regulator_dev_ctx *ctx;
+    TEE_Result res;
 
     ctx = get_ctx(element_id);
     if (ctx == NULL) {
@@ -343,8 +351,10 @@ static int optee_voltd_regulator_element_init(fwk_id_t element_id,
         if (ctx->regulator == NULL) {
             return FWK_E_PANIC;
         }
-        if (regulator_enable(ctx->regulator) != TEE_SUCCESS) {
-            return FWK_E_DEVICE;
+
+        res = regulator_enable(ctx->regulator);
+        if (res != TEE_SUCCESS) {
+            return scmi_tee_result_to_fwk_status(res);
         }
     }
 

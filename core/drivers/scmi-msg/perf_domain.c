@@ -50,9 +50,12 @@ int32_t __weak plat_scmi_perf_levels_array(unsigned int channel_id __unused,
 int32_t __weak plat_scmi_perf_level_latency_us(unsigned int channel_id __unused,
 					       unsigned int domain_id __unused,
 					       unsigned int level __unused,
-					       unsigned int *latency __unused)
+					       unsigned int *latency)
 {
-	return SCMI_NOT_SUPPORTED;
+	/* Use 1 microsecond because the Linux kernel treats 0 as eternal */
+	*latency = 1;
+
+	return SCMI_SUCCESS;
 }
 
 int32_t __weak plat_scmi_perf_level_power_cost(unsigned int channel_id __unused,

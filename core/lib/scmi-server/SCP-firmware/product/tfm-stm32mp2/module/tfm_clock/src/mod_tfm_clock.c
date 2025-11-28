@@ -173,7 +173,10 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
 {
     struct tfm_clock_dev_ctx *ctx = elt_id_to_ctx(dev_id);
     int res;
-    unsigned long min, max, step;
+    unsigned long max = 0;
+    unsigned long min = 0;
+    size_t rate_count = 0;
+    size_t count;
 
     if ((ctx == NULL) || (range == NULL)) {
         return FWK_E_PARAM;
@@ -188,19 +191,46 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
         return FWK_SUCCESS;
     }
 
-    res = clk_get_rates_steps(ctx->clk, &min, &max, &step);
+    res = clk_get_rates_array(ctx->clk, 0, NULL, &rate_count);
+    if (res == -ENOENT) {
+        unsigned long step = 0;
 
-    if (res) {
-        range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
-        range->min = clk_get_rate(ctx->clk);
-        range->max = range->min;
-        range->rate_count = 1;
-    } else {
+        res = clk_get_rates_steps(ctx->clk, &min, &max, &step);
+
+        if (res == -ENOENT) {
+            range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
+            range->min = clk_get_rate(ctx->clk);
+            range->max = range->min;
+            range->rate_count = 1;
+            return FWK_SUCCESS;
+        } else if (res) {
+            return FWK_E_DEVICE;
+        }
+
         range->rate_type = MOD_CLOCK_RATE_TYPE_CONTINUOUS;
         range->min = min;
         range->max = max;
         range->step = step;
+
+        return FWK_SUCCESS;
+    } else if (res) {
+        return FWK_E_DEVICE;
     }
+
+    range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
+    range->rate_count = rate_count;
+    range->min = UINT64_MAX;
+    range->max = 0;
+
+    count = 1;
+    res = clk_get_rates_array(ctx->clk, 0, &min, &count);
+    fwk_assert(!res && count == 1);
+    range->min = min;
+
+    count = 1;
+    res = clk_get_rates_array(ctx->clk, rate_count - 1, &max, &count);
+    fwk_assert(!res && count == 1);
+    range->max = max;
 
     return FWK_SUCCESS;
 }
@@ -301,7 +331,50 @@ static int stub_pending_power_transition(fwk_id_t dev_id,
 static int get_rate_from_index(fwk_id_t dev_id,
                                unsigned int rate_index, uint64_t *rate)
 {
-    return FWK_E_SUPPORT;
+    struct tfm_clock_dev_ctx *ctx = elt_id_to_ctx(dev_id);
+    unsigned long rate_ul;
+    size_t rate_count = 0;
+    int res;
+
+    if ((ctx == NULL) || (rate == NULL)) {
+        return FWK_E_PARAM;
+    }
+
+    if (!is_exposed(ctx)) {
+        *rate = 0;
+        return FWK_SUCCESS;
+    }
+
+    res = clk_get_rates_array(ctx->clk, 0, NULL, &rate_count);
+    if (res == -ENOENT) {
+        if (rate_index > 0) {
+            return FWK_E_PARAM;
+        }
+
+        *rate = clk_get_rate(ctx->clk);
+        return FWK_SUCCESS;
+    } else if (res) {
+        return FWK_E_DEVICE;
+    }
+
+    if (rate_index > rate_count) {
+        return FWK_E_PARAM;
+    }
+
+    rate_count = 1;
+    res = clk_get_rates_array(ctx->clk, rate_index, &rate_ul, &rate_count);
+    fwk_assert(!res && rate_count == 1);
+
+    *rate = rate_ul;
+
+    FWK_LOG_DEBUG(
+                  MOD_NAME "SCMI optee_clock (%u/\"%s\"): rate(index %u) = %lu",
+                  fwk_id_get_element_idx(dev_id),
+                  clk_get_name(ctx->clk),
+                  rate_index,
+                  rate_ul);
+
+    return FWK_SUCCESS;
 }
 
 static const struct mod_clock_drv_api api_tfm_clock = {
@@ -341,6 +414,10 @@ static int tfm_clock_element_init(fwk_id_t element_id, unsigned int dev_count,
     struct tfm_clock_dev_ctx *ctx = elt_id_to_ctx(element_id);
     const struct mod_tfm_clock_config *config = data;
     int res;
+
+    if (ctx == NULL) {
+        return FWK_E_PARAM;
+    }
 
     ctx->clk = (struct clk *)config->clk;
     if (ctx->clk) {

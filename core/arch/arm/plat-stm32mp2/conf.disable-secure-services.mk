@@ -34,6 +34,10 @@ $(call force,CFG_REE_FS,n)
 $(call force,CFG_REE_FS_TA,n)
 $(call force,CFG_RPMB_FS,n)
 
+# Deactivate secure debug
+$(call force,CFG_PSA_ADAC,n)
+$(call force,CFG_STM32_DBGMCU_MBX,n)
+
 # Default deactivate services related to security configuration
 CFG_STM32_PANIC_ON_IAC_EVENT ?= n
 CFG_STM32_PANIC_ON_SERC_EVENT ?= n

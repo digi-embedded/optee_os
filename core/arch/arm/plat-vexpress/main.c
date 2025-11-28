@@ -123,10 +123,12 @@ static struct itr_handler console_itr = {
 };
 DECLARE_KEEP_PAGER(console_itr);
 
-static void atomic_console_notif(struct notif_driver *ndrv __unused,
+static bool atomic_console_notif(struct notif_driver *ndrv __unused,
 				 enum notif_event ev __maybe_unused)
 {
 	DMSG("Asynchronous notifications started, event %d", (int)ev);
+
+	return false;
 }
 DECLARE_KEEP_PAGER(atomic_console_notif);
 

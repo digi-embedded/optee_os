@@ -424,10 +424,11 @@ static bool pin_is_accessible(struct stm32_gpio_bank *bank, unsigned int pin)
 	if (!(cidcfgr & _CIDCFGR_CFEN)) {
 		/* Resource can be accessed when CID filtering is disabled */
 		accessible = true;
-	} else if (SCID_OK(cidcfgr, GPIO_CIDCFGR_SCID_MASK, RIF_CID1)) {
+	} else if (stm32_rif_scid_ok(cidcfgr, GPIO_CIDCFGR_SCID_MASK,
+				     RIF_CID1)) {
 		/* Resource can be accessed if CID1 is statically allowed */
 		accessible = true;
-	} else if (SEM_EN_AND_OK(cidcfgr, RIF_CID1)) {
+	} else if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1)) {
 		/* We must acquire the semaphore to access the resource */
 		res = stm32_rif_acquire_semaphore(bank->base + GPIO_SEMCR(pin),
 						  GPIO_MAX_CID_SUPPORTED);
@@ -866,11 +867,52 @@ static bool bank_is_registered(const void *fdt, int node)
 	return false;
 }
 
+#ifdef CFG_STM32_RIF
+static TEE_Result handle_available_semaphores(struct stm32_gpio_bank *bank,
+					      uint32_t gpios_mask)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	uint32_t cidcfgr = 0;
+	unsigned int i = 0;
+
+	for (i = 0 ; i < bank->ngpios; i++) {
+		if (!(BIT(i) & gpios_mask) ||
+		    !(BIT(i) & bank->rif_cfg->access_mask[0]))
+			continue;
+
+		cidcfgr = io_read32(bank->base + GPIO_CIDCFGR(i));
+
+		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+			continue;
+
+		if (!(io_read32(bank->base + GPIO_SECR_OFFSET) & BIT(i))) {
+			res = stm32_rif_release_semaphore(bank->base +
+							  GPIO_SEMCR(i),
+							  MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot release semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		} else {
+			res = stm32_rif_acquire_semaphore(bank->base +
+							  GPIO_SEMCR(i),
+							  MAX_CID_SUPPORTED);
+			if (res) {
+				EMSG("Cannot acquire semaphore for resource %"PRIu32,
+				     i);
+				return res;
+			}
+		}
+	}
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
 				   uint32_t gpios_mask)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
-	uint32_t cidcfgr = 0;
 	unsigned int i = 0;
 
 	if (!bank->rif_cfg)
@@ -879,33 +921,25 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
 	if (clk_enable(bank->clock))
 		panic();
 
-	for (i = 0; i < bank->ngpios; i++) {
-		if (!(BIT(i) & gpios_mask) ||
-		    !(BIT(i) & bank->rif_cfg->access_mask[0]))
-			continue;
+	if (bank->is_tdcid) {
+		for (i = 0; i < bank->ngpios; i++) {
+			if (!(BIT(i) & gpios_mask) ||
+			    !(BIT(i) & bank->rif_cfg->access_mask[0]))
+				continue;
 
-		/*
-		 * When TDCID, OP-TEE should be the one to set the CID filtering
-		 * configuration. Clearing previous configuration prevents
-		 * undesired events during the only legitimate configuration.
-		 */
-		if (bank->is_tdcid)
+			/*
+			 * When TDCID, OP-TEE should be the one to set the CID
+			 * filtering configuration. Clearing previous
+			 * configuration prevents undesired events during the
+			 * only legitimate configuration.
+			 */
 			io_clrbits32(bank->base + GPIO_CIDCFGR(i),
 				     GPIO_CIDCFGR_CONF_MASK);
-
-		cidcfgr = io_read32(bank->base + GPIO_CIDCFGR(i));
-
-		/* Check if the controller is in semaphore mode */
-		if (SEM_MODE_INCORRECT(cidcfgr))
-			continue;
-
-		/* If not TDCID, we want to acquire semaphores assigned to us */
-		res = stm32_rif_acquire_semaphore(bank->base + GPIO_SEMCR(i),
-						  GPIO_MAX_CID_SUPPORTED);
-		if (res) {
-			EMSG("Could not acquire semaphore for pin %u", i);
-			goto out;
 		}
+	} else {
+		res = handle_available_semaphores(bank, gpios_mask);
+		if (res)
+			panic();
 	}
 
 	/* Security and privilege RIF configuration */
@@ -927,33 +961,6 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
 		io_clrsetbits32(bank->base + GPIO_CIDCFGR(i),
 				GPIO_CIDCFGR_CONF_MASK,
 				bank->rif_cfg->cid_confs[i]);
-
-		cidcfgr = io_read32(bank->base + GPIO_CIDCFGR(i));
-
-		/*
-		 * Take semaphore if the resource is in semaphore mode
-		 * and secured.
-		 */
-		if (SEM_MODE_INCORRECT(cidcfgr) ||
-		    !(io_read32(bank->base + GPIO_SECR_OFFSET) & BIT(i))) {
-			res = stm32_rif_release_semaphore(bank->base +
-				GPIO_SEMCR(i),
-				GPIO_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Could not release semaphore for pin%u",
-				     i);
-				goto out;
-			}
-		} else {
-			res = stm32_rif_acquire_semaphore(bank->base +
-				GPIO_SEMCR(i),
-				GPIO_MAX_CID_SUPPORTED);
-			if (res) {
-				EMSG("Could not acquire semaphore for pin%u",
-				     i);
-				goto out;
-			}
-		}
 	}
 
 	/*
@@ -963,6 +970,11 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
 	io_clrsetbits32(bank->base + GPIO_RCFGLOCKR_OFFSET, gpios_mask,
 			bank->rif_cfg->lock_conf[0]);
 
+	res = handle_available_semaphores(bank, gpios_mask);
+	if (res)
+		panic();
+
+out:
 	if (IS_ENABLED(CFG_TEE_CORE_DEBUG)) {
 		/* Check that RIF config are applied, panic otherwise */
 		if ((io_read32(bank->base + GPIO_PRIVCFGR_OFFSET) &
@@ -982,11 +994,17 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
 		}
 	}
 
-out:
 	clk_disable(bank->clock);
 
 	return res;
 }
+#else /* CFG_STM32_RIF */
+static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank __unused,
+				   uint32_t gpios_mask __unused)
+{
+	return TEE_SUCCESS;
+}
+#endif /* CFG_STM32_RIF */
 
 /* Forward reference to stm32_gpio_set_conf_sec() defined below */
 static void stm32_gpio_set_conf_sec(struct stm32_gpio_bank *bank);
@@ -1020,7 +1038,7 @@ static TEE_Result stm32_gpio_fw_configure(struct firewall_query *firewall)
 		 * and apply it.
 		 */
 		stm32_rif_parse_cfg(firewall->args[0], bank->rif_cfg,
-				    GPIO_MAX_CID_SUPPORTED, bank->ngpios);
+				    bank->ngpios);
 		return apply_rif_config(bank, gpios_mask);
 	}
 
@@ -1104,7 +1122,7 @@ static void stm32_parse_gpio_rif_conf(struct stm32_gpio_bank *bank,
 
 	for (i = 0; i < nb_rif_conf; i++)
 		stm32_rif_parse_cfg(fdt32_to_cpu(cuint[i]), bank->rif_cfg,
-				    GPIO_MAX_CID_SUPPORTED, bank->ngpios);
+				    bank->ngpios);
 }
 
 /* Get GPIO bank information from the DT */
@@ -1193,9 +1211,6 @@ static TEE_Result dt_stm32_gpio_bank(const void *fdt, int node,
 	} else {
 		bank->base = io_pa_or_va_nsec(&pa_va, blen);
 	}
-
-	if (compat->gpioz)
-		stm32mp_register_gpioz_pin_count(bank->ngpios);
 
 	*out_bank = bank;
 
@@ -1473,7 +1488,9 @@ static TEE_Result stm32_gpio_sec_config_resume(void)
 			bank->rif_cfg->access_mask[0] = GENMASK_32(bank->ngpios,
 								   0);
 
-			apply_rif_config(bank, bank->rif_cfg->access_mask[0]);
+			if (apply_rif_config(bank,
+					     bank->rif_cfg->access_mask[0]))
+				panic();
 		} else {
 			stm32_gpio_set_conf_sec(bank);
 		}

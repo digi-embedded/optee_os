@@ -1142,7 +1142,7 @@ TEE_Result stm32_cryp_update(struct stm32_cryp_context *ctx, bool last_block,
 			 */
 
 			/* We save remaining mask and its new size */
-			memmove(ctx->extra, ctx->extra + j,
+			memmove(ctx->extra, (uint8_t *)ctx->extra + j,
 				ctx->extra_size - j);
 			ctx->extra_size -= j;
 
@@ -1258,8 +1258,6 @@ static TEE_Result stm32_cryp_probe(const void *fdt, int node,
 	io_pa_or_va_secure(&cryp_pdata.base, dt_cryp.reg_size);
 	if (!cryp_pdata.base.va)
 		panic();
-
-	stm32mp_register_secure_periph_iomem(cryp_pdata.base.pa);
 
 	if (clk_enable(cryp_pdata.clock))
 		panic();

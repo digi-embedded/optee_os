@@ -60,8 +60,13 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
 
 register_phys_mem_pgdir(MEM_AREA_IO_NSEC, DBGMCU_BASE, DBGMCU_SIZE);
 
+#ifdef CFG_STM32_CM33TDCID
+/* Map beginning SRAM1 as read-only non-secure for BSEC shadow */
+register_phys_mem(MEM_AREA_RAM_NSEC, SRAM1_BASE, SIZE_4K);
+#else
 /* Map beginning SRAM1 as read write for BSEC shadow */
-register_phys_mem_pgdir(MEM_AREA_RAM_SEC, SRAM1_BASE, SIZE_4K);
+register_phys_mem(MEM_AREA_RAM_SEC, SRAM1_BASE, SIZE_4K);
+#endif
 
 #define _ID2STR(id)		(#id)
 #define ID2STR(id)		_ID2STR(id)
@@ -96,18 +101,17 @@ void console_init(void)
 	/* Early console initialization before MMU setup */
 	struct uart {
 		paddr_t pa;
-		bool secure;
 	} uarts[] = {
 		[0] = { .pa = 0 },
-		[1] = { .pa = USART1_BASE, .secure = true, },
-		[2] = { .pa = USART2_BASE, .secure = false, },
-		[3] = { .pa = USART3_BASE, .secure = false, },
-		[4] = { .pa = UART4_BASE, .secure = false, },
-		[5] = { .pa = UART5_BASE, .secure = false, },
-		[6] = { .pa = USART6_BASE, .secure = false, },
-		[7] = { .pa = UART7_BASE, .secure = false, },
-		[8] = { .pa = UART8_BASE, .secure = false, },
-		[9] = { .pa = UART9_BASE, .secure = false, },
+		[1] = { .pa = USART1_BASE },
+		[2] = { .pa = USART2_BASE },
+		[3] = { .pa = USART3_BASE },
+		[4] = { .pa = UART4_BASE },
+		[5] = { .pa = UART5_BASE },
+		[6] = { .pa = USART6_BASE },
+		[7] = { .pa = UART7_BASE },
+		[8] = { .pa = UART8_BASE },
+		[9] = { .pa = UART9_BASE },
 	};
 
 	static_assert(ARRAY_SIZE(uarts) > CFG_STM32_EARLY_CONSOLE_UART);
@@ -117,7 +121,6 @@ void console_init(void)
 
 	/* No clock yet bound to the UART console */
 	console_data.clock = NULL;
-	console_data.secure = uarts[CFG_STM32_EARLY_CONSOLE_UART].secure;
 	stm32_uart_init(&console_data, uarts[CFG_STM32_EARLY_CONSOLE_UART].pa);
 	register_serial_console(&console_data.chip);
 
@@ -153,7 +156,7 @@ void boot_secondary_init_intc(void)
 void stm32_rif_access_violation_action(void)
 {
 #ifdef CFG_STM32_RISAF
-	stm32_risaf_dump_erroneous_data();
+	stm32_risaf_print_erroneous_data();
 	stm32_risaf_clear_illegal_access_flags();
 #endif
 #ifdef CFG_STM32_RISAB
@@ -173,11 +176,12 @@ void plat_abort_handler(struct thread_abort_regs *regs __unused)
 void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg)
 {
 	cfg->base = BSEC3_BASE;
-	cfg->shadow = SRAM1_BASE;
+	cfg->mirror = SRAM1_BASE;
 	cfg->upper_start = STM32MP2_UPPER_OTP_START;
 	cfg->max_id = STM32MP2_OTP_MAX_ID;
 }
 
+#ifndef CFG_STM32_CM33TDCID
 #define BSEC3_DEBUG_ALL		GENMASK_32(11, 1)
 static TEE_Result init_debug(void)
 {
@@ -232,6 +236,7 @@ static TEE_Result init_debug(void)
 	return res;
 }
 early_init_late(init_debug);
+#endif /* !CFG_STM32_CM33TDCID */
 #endif /* CFG_STM32_BSEC3 */
 
 #ifdef CFG_STM32_CPU_OPP
@@ -304,95 +309,23 @@ void __noreturn do_reset(const char *str __maybe_unused)
 	panic();
 }
 
-/* Activate the SoC resources required by internal TAMPER */
-TEE_Result stm32_activate_internal_tamper(int id)
-{
-	TEE_Result res = TEE_ERROR_NOT_SUPPORTED;
-
-	switch (id) {
-	case INT_TAMP1: /* Backup domain (V08CAP) voltage monitoring */
-	case INT_TAMP2: /* Temperature monitoring */
-		stm32mp_pwr_monitoring_enable(PWR_MON_V08CAP_TEMP);
-		res = TEE_SUCCESS;
-		break;
-
-	case INT_TAMP3: /* LSE monitoring (LSECSS) */
-		if (io_read32(stm32_rcc_base() + RCC_BDCR) & RCC_BDCR_LSECSSON)
-			res = TEE_SUCCESS;
-		break;
-
-	case INT_TAMP4: /* HSE monitoring (CSS + over frequency detection) */
-		if (io_read32(stm32_rcc_base() + RCC_OCENSETR) &
-		    RCC_OCENSETR_HSECSSON)
-			res = TEE_SUCCESS;
-		break;
-
-	case INT_TAMP7:
-		if (IS_ENABLED(CFG_STM32MP21)) {
-			/* ADC2 (adc2_awd1) analog watchdog monitoring 1 */
-			res = TEE_SUCCESS;
-			break;
-		} else if (IS_ENABLED(CFG_STM32MP23) ||
-			   IS_ENABLED(CFG_STM32MP25)) {
-			/* VDDCORE monitoring under/over voltage */
-			stm32mp_pwr_monitoring_enable(PWR_MON_VCORE);
-			res = TEE_SUCCESS;
-			break;
-		}
-		break;
-
-	case INT_TAMP12:
-		if (IS_ENABLED(CFG_STM32MP21)) {
-			/* ADC2 (adc2_awd2) analog watchdog monitoring 2 */
-			res = TEE_SUCCESS;
-			break;
-		} else if (IS_ENABLED(CFG_STM32MP23) ||
-			   IS_ENABLED(CFG_STM32MP25)) {
-			/* VDDCPU (Cortex A35) monitoring under/over voltage */
-			stm32mp_pwr_monitoring_enable(PWR_MON_VCPU);
-			res = TEE_SUCCESS;
-			break;
-		}
-		break;
-
-	case INT_TAMP13:
-	case INT_TAMP16:
-		if (IS_ENABLED(CFG_STM32MP21))
-			res = TEE_SUCCESS;
-		break;
-
-	case INT_TAMP5:
-	case INT_TAMP6:
-	case INT_TAMP8:
-	case INT_TAMP9:
-	case INT_TAMP10:
-	case INT_TAMP11:
-	case INT_TAMP14:
-	case INT_TAMP15:
-		res = TEE_SUCCESS;
-		break;
-
-	default:
-		break;
-	}
-
-	return res;
-}
-
 #ifdef CFG_STM32_HSE_MONITORING
-/* pourcent rate of hse alarm */
-#define HSE_ALARM_PERCENT	110
+/* Percent rate of HSE event */
+#define HSE_THRESHOLD_PERCENT	110
 #define FREQ_MONITOR_COMPAT	"st,freq-monitor"
 
 struct stm32_hse_monitoring_data {
 	struct counter_device *counter;
 	void *config;
+	uint32_t threshold;
 };
 
-static void stm32_hse_over_frequency(uint32_t ticks __unused,
-				     void *user_data __unused)
+static void stm32_hse_over_frequency(void *priv,
+				     enum counter_event_type event __unused)
 {
-	EMSG("HSE over frequency: nb ticks:%"PRIu32, ticks);
+	uint32_t __maybe_unused *ticks = priv;
+
+	EMSG("HSE over frequency detected: nb ticks:%"PRIu32, *ticks);
 }
 DECLARE_KEEP_PAGER(stm32_hse_over_frequency);
 
@@ -402,13 +335,31 @@ static TEE_Result stm32_hse_monitoring_pm(enum pm_op op,
 {
 	struct stm32_hse_monitoring_data *priv =
 	(struct stm32_hse_monitoring_data *)PM_CALLBACK_GET_HANDLE(h);
+	TEE_Result res = TEE_ERROR_GENERIC;
 
 	if (op == PM_OP_RESUME) {
-		counter_start(priv->counter, priv->config);
-		counter_set_alarm(priv->counter);
+		res = counter_set_threshold(priv->counter, priv->threshold);
+		if (res)
+			return res;
+
+		res = counter_enable_event(priv->counter,
+					   COUNTER_EVENT_THRESHOLD,
+					   stm32_hse_over_frequency,
+					   (void *)&priv->threshold);
+		if (res)
+			return res;
+
+		res = counter_start(priv->counter, priv->config);
+		if (res)
+			return res;
 	} else {
-		counter_cancel_alarm(priv->counter);
-		counter_stop(priv->counter);
+		res = counter_stop(priv->counter);
+		if (res)
+			return res;
+
+		res = counter_disable_all_events(priv->counter);
+		if (res)
+			return res;
 	}
 
 	return TEE_SUCCESS;
@@ -457,7 +408,7 @@ static TEE_Result stm32_hse_monitoring(void)
 	 */
 	hsi_cal /= 1024;
 
-	ticks = (hse / 100) * HSE_ALARM_PERCENT;
+	ticks = (hse / 100) * HSE_THRESHOLD_PERCENT;
 	ticks /= hsi_cal;
 
 	DMSG("HSE:%luHz HSI cal:%luHz alarm:%"PRIu32, hse, hsi_cal, ticks);
@@ -465,17 +416,25 @@ static TEE_Result stm32_hse_monitoring(void)
 	counter = fdt_counter_get(fdt, node, &config);
 	assert(counter && config);
 
-	counter->alarm.callback = stm32_hse_over_frequency;
-	counter->alarm.ticks = ticks;
-
 	priv->counter = counter;
 	priv->config = config;
+	priv->threshold = ticks;
 
 	register_pm_core_service_cb(stm32_hse_monitoring_pm, priv,
 				    "stm32-hse-monitoring");
+	res = counter_set_threshold(counter, priv->threshold);
+	if  (res)
+		return res;
 
-	counter_start(counter, config);
-	counter_set_alarm(counter);
+	res = counter_enable_event(counter, COUNTER_EVENT_THRESHOLD,
+				   stm32_hse_over_frequency,
+				   (void *)&priv->threshold);
+	if  (res)
+		return res;
+
+	res = counter_start(counter, config);
+	if  (res)
+		return res;
 
 	return TEE_SUCCESS;
 }
@@ -501,6 +460,9 @@ void stm32_debug_suspend(unsigned long a0)
 	struct clk *dbgmcu_clk = stm32mp_rcc_clock_id_to_clk(CK_ICN_APBDBG);
 	uint32_t dbgmcu_cr = U(0);
 	static bool info_displayed;
+
+	if (!stm32_bsec_self_hosted_debug_is_enabled())
+		return;
 
 	if (clk_enable(dbgmcu_clk))
 		return;

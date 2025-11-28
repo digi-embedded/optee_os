@@ -23,6 +23,7 @@
 #ifdef CFG_SCMI_SCPFW
 #include <scmi_agent_configuration.h>
 #endif
+#include <stm32mp_pm.h>
 #include <stm32_util.h>
 #include <trace.h>
 #include <util.h>
@@ -41,6 +42,7 @@ struct cpu_dvfs {
  * struct cpu_opp - CPU operating point
  *
  * @current_opp: Index of current CPU operating point in @dvfs array
+ * @default_opp: Index of OPP to set at boot or during suspend in @dvfs array
  * @opp_count: Number of cells of @dvfs
  * @clock: CPU clock handle
  * @regul: CPU regulator supply handle
@@ -49,10 +51,10 @@ struct cpu_dvfs {
  * @scp_regulator: Regulator instance exposed to scp-firmware SCMI DVFS
  * @scp_levels_desc: Description of voltage levels for scp-firmware SCMI DVFS
  * @scp_cpu_opp_levels_uv: Array of voltage levels described by @scp_levels_desc
- * @default_opp_freq: Operating point frequency to use during initialization
  */
 struct cpu_opp {
 	unsigned int current_opp;
+	unsigned int default_opp;
 	unsigned int opp_count;
 	struct clk *clock;
 	struct regulator *regul;
@@ -62,7 +64,6 @@ struct cpu_opp {
 	struct regulator scp_regulator;
 	struct regulator_voltages_desc scp_levels_desc;
 	int *scp_cpu_opp_levels_uv;
-	unsigned int default_opp_freq;
 #endif
 };
 
@@ -293,15 +294,9 @@ static TEE_Result scp_set_regu_voltage(struct regulator *regulator __unused,
 				       int uv)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
-	int cur_uv = 0;
-
-	cur_uv = regulator_get_voltage(cpu_opp.regul);
-	if (uv == cur_uv)
-		return TEE_SUCCESS;
 
 #ifdef CFG_STM32MP13
-	if (cur_uv > MPU_RAM_LOW_SPEED_THRESHOLD &&
-	    uv <= MPU_RAM_LOW_SPEED_THRESHOLD)
+	if (uv <= MPU_RAM_LOW_SPEED_THRESHOLD)
 		io_setbits32(stm32_pwr_base(), PWR_CR1_MPU_RAM_LOW_SPEED);
 #endif
 
@@ -310,8 +305,7 @@ static TEE_Result scp_set_regu_voltage(struct regulator *regulator __unused,
 		return res;
 
 #ifdef CFG_STM32MP13
-	if (cur_uv <= MPU_RAM_LOW_SPEED_THRESHOLD &&
-	    uv > MPU_RAM_LOW_SPEED_THRESHOLD)
+	if (uv > MPU_RAM_LOW_SPEED_THRESHOLD)
 		io_clrbits32(stm32_pwr_base(), PWR_CR1_MPU_RAM_LOW_SPEED);
 #endif
 
@@ -391,7 +385,6 @@ TEE_Result optee_scmi_server_init_dvfs(const void *fdt __unused,
 	unsigned int *dvfs_opp_mv = NULL;
 	size_t opp = 0;
 	struct cpu_dvfs *sorted_dvfs = NULL;
-	unsigned int scpfw_default_opp_index = UINT_MAX;
 
 	assert(agent_cfg && channel_cfg);
 
@@ -461,11 +454,7 @@ TEE_Result optee_scmi_server_init_dvfs(const void *fdt __unused,
 	for (opp = 0; opp < cpu_opp.opp_count; opp++) {
 		dvfs_khz[opp] = sorted_dvfs[opp].freq_khz;
 		dvfs_mv[opp] = sorted_dvfs[opp].volt_uv / U(1000);
-		if (cpu_opp.default_opp_freq == dvfs_khz[opp])
-			scpfw_default_opp_index = opp;
 	}
-	if (scpfw_default_opp_index == UINT_MAX)
-		panic();
 
 	free(sorted_dvfs);
 
@@ -495,7 +484,7 @@ TEE_Result optee_scmi_server_init_dvfs(const void *fdt __unused,
 
 	channel_cfg->perfd[0] = (struct scmi_perfd){
 		.name = "CPU DVFS",
-		.initial_opp = scpfw_default_opp_index,
+		.initial_opp = cpu_opp.default_opp,
 		.dvfs_opp_count = cpu_opp.opp_count,
 		.dvfs_opp_khz = dvfs_opp_khz,
 		.dvfs_opp_mv = dvfs_opp_mv,
@@ -558,12 +547,27 @@ TEE_Result stm32_cpu_opp_read_level(unsigned int *level)
 }
 #endif /*CFG_SCPFW_MOD_DVFS*/
 
-static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint __unused,
+static TEE_Result set_opp(unsigned int opp)
+{
+	unsigned long clk_cpu = clk_get_rate(cpu_opp.clock);
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	assert(clk_cpu);
+	if (cpu_opp.dvfs[opp].freq_khz * 1000U >= clk_cpu)
+		res = set_voltage_then_clock(opp);
+	else
+		res = set_clock_then_voltage(opp);
+
+	if (res)
+		DMSG("Failed to set OPP %ukHz",
+		     cpu_opp.dvfs[opp].freq_khz);
+
+	return res;
+}
+
+static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint,
 			     const struct pm_callback_handle *hdl __unused)
 {
-	unsigned long clk_cpu = 0;
-	unsigned int opp = 0;
-
 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
 
 	/* nothing to do if OPP is managed by Linux and not by SCMI */
@@ -571,12 +575,20 @@ static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint __unused,
 	    !IS_ENABLED(CFG_SCPFW_MOD_DVFS))
 		return TEE_SUCCESS;
 
-	/* nothing to do if RCC clock tree is not lost */
+#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
+	/* Nothing to do on Stop1, LP-Stop1 modes */
+	if (PM_HINT_PLATFORM_STATE(pm_hint) == PM_CORE_LEVEL)
+		return TEE_SUCCESS;
+#else
+	/* Nothing to do if RCC clock tree is not lost */
 	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
 		return TEE_SUCCESS;
+#endif
 
-#ifdef CFG_SCPFW_MOD_DVFS
 	if (op == PM_OP_SUSPEND) {
+#ifdef CFG_SCPFW_MOD_DVFS
+		unsigned int opp = 0;
+
 		/*
 		 * When CFG_SCPFW_MOD_DVFS is enabled, save CPU OPP on suspend
 		 * for restoration at resume. If CPU is not in an expected
@@ -599,33 +611,35 @@ static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint __unused,
 		if (opp >= cpu_opp.opp_count) {
 			EMSG("Unexpected OPP state, select default");
 
-			for (opp = 0; opp < cpu_opp.opp_count; opp++)
-				if (cpu_opp.default_opp_freq ==
-				    cpu_opp.dvfs[opp].freq_khz)
-					break;
-
-			if (opp >= cpu_opp.opp_count)
-				panic();
+			opp = cpu_opp.default_opp;
 		}
-
-		DMSG("Suspend to OPP %u", opp);
 		cpu_opp.current_opp = opp;
-
-		return TEE_SUCCESS;
-	}
 #endif
+		/*
+		 * Force default OPP before suspend
+		 * On STM32MP2, it is not allowed to enter LPLV-Stop
+		 * with overdrive voltage on VDDCPU
+		 */
+		DMSG("Suspend to OPP %u", cpu_opp.default_opp);
+
+		if (cpu_opp.current_opp == cpu_opp.default_opp)
+			return TEE_SUCCESS;
+
+		return set_opp(cpu_opp.default_opp);
+	}
 
 	if (op == PM_OP_RESUME) {
-		opp = cpu_opp.current_opp;
+		DMSG("Resume to OPP %u", cpu_opp.current_opp);
 
-		DMSG("Resume to OPP %u", opp);
+		/*
+		 * Optimize resume from Stop modes: do not reset
+		 * the OPP if we where on default before suspend.
+		 */
+		if (!PM_HINT_IS_STATE(pm_hint, CONTEXT) &&
+		    cpu_opp.current_opp == cpu_opp.default_opp)
+			return TEE_SUCCESS;
 
-		clk_cpu = clk_get_rate(cpu_opp.clock);
-		assert(clk_cpu);
-		if (cpu_opp.dvfs[opp].freq_khz * 1000U >= clk_cpu)
-			return set_voltage_then_clock(opp);
-		else
-			return set_clock_then_voltage(opp);
+		return set_opp(cpu_opp.current_opp);
 	}
 
 	return TEE_SUCCESS;
@@ -661,42 +675,48 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 	uint64_t freq_khz = 0;
 	uint64_t freq_khz_opp_def = 0;
 	uint32_t volt_uv = 0;
-	unsigned long clk_cpu = 0;
 	unsigned int i = 0;
 	int subnode = -1;
 	TEE_Result res = TEE_ERROR_GENERIC;
 	bool opp_default = false;
 
 	fdt_for_each_subnode(subnode, fdt, node)
-		if (!stm32_cpu_opp_is_supported(fdt, subnode))
+		if (stm32_cpu_opp_is_supported(fdt, subnode) == TEE_SUCCESS)
 			cpu_opp.opp_count++;
 
-	cpu_opp.dvfs = calloc(1, cpu_opp.opp_count * sizeof(*cpu_opp.dvfs));
+	cpu_opp.dvfs = calloc(cpu_opp.opp_count, sizeof(*cpu_opp.dvfs));
 	if (!cpu_opp.dvfs)
 		return TEE_ERROR_OUT_OF_MEMORY;
 
-	cpu_opp.current_opp = cpu_opp.opp_count;
+	cpu_opp.default_opp = cpu_opp.opp_count;
 
 	fdt_for_each_subnode(subnode, fdt, node) {
-		if (stm32_cpu_opp_is_supported(fdt, subnode))
+		if (stm32_cpu_opp_is_supported(fdt, subnode) != TEE_SUCCESS)
 			continue;
 
 		cuint64 = fdt_getprop(fdt, subnode, "opp-hz", NULL);
 		if (!cuint64) {
-			EMSG("Missing opp-hz");
-			return TEE_ERROR_GENERIC;
+			EMSG("Missing opp-hz in node %s",
+			     fdt_get_name(fdt, subnode, NULL));
+			res = TEE_ERROR_GENERIC;
+			goto err;
 		}
+
 		freq_hz = fdt64_to_cpu(*cuint64);
 		freq_khz = freq_hz / 1000ULL;
 		if (freq_khz > (uint64_t)UINT32_MAX) {
-			EMSG("Invalid opp-hz %"PRIu64, freq_khz);
-			return TEE_ERROR_GENERIC;
+			EMSG("Invalid opp-hz %"PRIu64" in node %s",
+			     freq_khz, fdt_get_name(fdt, subnode, NULL));
+			res = TEE_ERROR_GENERIC;
+			goto err;
 		}
 
 		cuint32 = fdt_getprop(fdt, subnode, "opp-microvolt", NULL);
 		if (!cuint32) {
-			EMSG("Missing opp-microvolt");
-			return TEE_ERROR_GENERIC;
+			EMSG("Missing opp-microvolt in node %s",
+			     fdt_get_name(fdt, subnode, NULL));
+			res = TEE_ERROR_GENERIC;
+			goto err;
 		}
 
 		volt_uv = fdt32_to_cpu(*cuint32);
@@ -726,34 +746,35 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 		if (fdt_getprop(fdt, subnode, "st,opp-default", NULL) &&
 		    freq_khz > freq_khz_opp_def) {
 			opp_default = true;
-			cpu_opp.current_opp = i;
+			cpu_opp.default_opp = i;
 			freq_khz_opp_def = freq_khz;
 		}
 
 		i++;
 	}
 
-	/* Erreur when "st,opp-default" is not present */
-	if (!opp_default)
-		return TEE_ERROR_GENERIC;
+	/* At least one OPP node shall have a "st,opp-default" property */
+	if (!opp_default) {
+		EMSG("No default OPP found");
+		res = TEE_ERROR_GENERIC;
+		goto err;
+	}
 
 	/* Select the max "st,opp-default" node as current OPP */
-#ifdef CFG_SCPFW_MOD_DVFS
-	cpu_opp.default_opp_freq = freq_khz_opp_def;
-#endif
-	clk_cpu = clk_get_rate(cpu_opp.clock);
-	assert(clk_cpu);
-	if (freq_khz_opp_def * 1000U > clk_cpu)
-		res = set_voltage_then_clock(cpu_opp.current_opp);
-	else
-		res = set_clock_then_voltage(cpu_opp.current_opp);
-
+	res = set_opp(cpu_opp.default_opp);
 	if (res)
-		return res;
+		goto err;
+
+	cpu_opp.current_opp = cpu_opp.default_opp;
 
 	register_pm_driver_cb(cpu_opp_pm, NULL, "cpu-opp");
 
 	return TEE_SUCCESS;
+
+err:
+	free(cpu_opp.dvfs);
+
+	return res;
 }
 
 static TEE_Result

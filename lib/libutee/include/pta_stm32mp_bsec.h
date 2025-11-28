@@ -51,6 +51,15 @@
  */
 #define PTA_BSEC_CMD_GET_STATE		0x3
 
+/**
+ * Get the BSEC debug state
+ *
+ * Return codes:
+ * TEE_SUCCESS - BSEC debug enabled
+ * TEE_ERROR_ACCESS_DENIED - BSEC debug disabled
+ */
+#define PTA_BSEC_CMD_GET_DEBUG_STATE	0x4
+
 enum stm32_bsec_pta_sec_state {
 	PTA_BSEC_STATE_SEC_OPEN = 0,
 	PTA_BSEC_STATE_SEC_CLOSE = 1,

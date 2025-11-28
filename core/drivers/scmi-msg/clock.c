@@ -559,6 +559,26 @@ static bool message_id_is_supported(unsigned int message_id)
 	       scmi_clock_handler_table[message_id];
 }
 
+#ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
+/*
+ * Special case to support OSTLv5 duty-cycle requests:
+ * based on input message size, distinguish standard
+ * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
+ * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
+ */
+static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
+	      sizeof(struct scmi_clock_duty_cycle_get_a2p));
+
+/*
+ * Special case to support OSTLv5 duty-cycle requests:
+ * based on input message size, distinguish standard
+ * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
+ * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
+ */
+static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
+	      sizeof(struct scmi_clock_ostl_round_rate_a2p));
+#endif /* CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT */
+
 scmi_msg_handler_t scmi_msg_get_clock_handler(struct scmi_msg *msg)
 {
 	const size_t array_size = ARRAY_SIZE(scmi_clock_handler_table);
@@ -574,29 +594,11 @@ scmi_msg_handler_t scmi_msg_get_clock_handler(struct scmi_msg *msg)
 #ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
 	switch (msg->message_id) {
 	case SCMI_CLOCK_DUTY_CYCLE_GET:
-		/*
-		 * Special case to support OSTLv5 duty-cycle requests:
-		 * based on input message size, distinguish standard
-		 * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
-		 * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
-		 */
-		static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
-			      sizeof(struct scmi_clock_duty_cycle_get_a2p));
-
 		if (msg->in_size ==
 		    sizeof(struct scmi_clock_duty_cycle_get_a2p))
 			return scmi_clock_ostl_duty_cycle_get;
 		break;
 	case SCMI_CLOCK_ROUND_RATE_GET:
-		/*
-		 * Special case to support OSTLv5 duty-cycle requests:
-		 * based on input message size, distinguish standard
-		 * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
-		 * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
-		 */
-		static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
-			      sizeof(struct scmi_clock_ostl_round_rate_a2p));
-
 		if (msg->in_size ==
 		    sizeof(struct scmi_clock_ostl_round_rate_a2p))
 			return scmi_clock_ostl_round_rate_get;

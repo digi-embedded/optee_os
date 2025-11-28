@@ -14,6 +14,8 @@
 #include <fwk_mm.h>
 #include <fwk_module.h>
 
+#include <arch_main.h>
+
 struct mod_stm32_pd {
     const struct mod_stm32_pd_config *config;
     unsigned int current_state;
@@ -52,6 +54,7 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
     struct clk *clk = ctx->config->clk;
     struct regulator *regu = ctx->config->regu;
     int status;
+    TEE_Result res;
 
     fwk_assert(ctx->pd_driver_input_api != NULL);
     fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
@@ -63,24 +66,34 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
 
     switch (state) {
         case MOD_PD_STATE_ON:
-            if (regu != NULL && regulator_enable(regu) != TEE_SUCCESS) {
-                return FWK_E_DEVICE;
+            if (regu != NULL) {
+                res = regulator_enable(regu);
+                if (res != TEE_SUCCESS) {
+                    return scmi_tee_result_to_fwk_status(res);
+                }
             }
-            if (clk != NULL && clk_enable(clk) != TEE_SUCCESS) {
-                if (regu != NULL)
-                    regulator_disable(regu);
-                return FWK_E_DEVICE;
+            if (clk != NULL) {
+                res = clk_enable(clk);
+                if (res != TEE_SUCCESS) {
+                    if (regu != NULL) {
+                        regulator_disable(regu);
+                    }
+                    return scmi_tee_result_to_fwk_status(res);
+                }
             }
             break;
         case MOD_PD_STATE_OFF:
             if (clk != NULL) {
                 clk_disable(clk);
             }
-            if (regu != NULL && regulator_disable(regu) != TEE_SUCCESS) {
-                if (clk != NULL) {
-                    clk_enable(clk);
+            if (regu != NULL) {
+                res = regulator_disable(regu);
+                if (res != TEE_SUCCESS) {
+                    if (clk != NULL) {
+                        clk_enable(clk);
+                    }
+                    return scmi_tee_result_to_fwk_status(res);
                 }
-                return FWK_E_DEVICE;
             }
             break;
         default:

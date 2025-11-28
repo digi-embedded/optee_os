@@ -9,6 +9,7 @@
 #include <kernel/dt.h>
 #include <kernel/boot.h>
 #include <kernel/panic.h>
+#include <io.h>
 #include <libfdt.h>
 #include <stm32_util.h>
 #include <stm32mp_pm.h>
@@ -27,13 +28,6 @@ static uint32_t deepest_suspend_mode;
 static uint32_t system_off_mode;
 static bool retram_enabled;
 static uint8_t stm32mp1_supported_soc_modes[STM32_PM_MAX_SOC_MODE];
-
-/* Boot with all domains ON */
-static bool stm32mp1_pm_dom[STM32MP1_PD_MAX_PM_DOMAIN] = {
-	[STM32MP1_PD_VSW] = false,
-	[STM32MP1_PD_CORE_RET] = false,
-	[STM32MP1_PD_CORE] = false
-};
 
 bool stm32mp1_is_retram_during_standby(void)
 {
@@ -71,6 +65,14 @@ bool need_to_backup_stop_context(unsigned int soc_mode)
 	}
 }
 
+#ifdef CFG_STM32_LOWPOWER_SIP
+/* Boot with all domains ON, false means in use */
+static bool stm32mp1_pm_dom[STM32MP1_PD_MAX_PM_DOMAIN] = {
+	[STM32MP1_PD_VSW] = false,
+	[STM32MP1_PD_CORE_RET] = false,
+	[STM32MP1_PD_CORE] = false
+};
+
 static bool get_pm_domain_state(uint8_t mode)
 {
 	bool res = true;
@@ -93,6 +95,156 @@ int stm32mp1_set_pm_domain_state(enum stm32mp1_pm_domain domain, bool status)
 
 	return 0;
 }
+
+static void dump_pm_domain_state(uint8_t domain __unused)
+{
+}
+#else /* CFG_STM32_LOWPOWER_SIP */
+
+#define EXTI_BANK_NR		3U
+#define EXTI_C1IMR(n)		(0x080U + (n) * 0x10U)
+
+#ifdef CFG_STM32MP13
+/*
+ * Implementation of  PWR Table 35. Functionalities depending on system
+ * operating mode
+ *
+ * Valid wake-up source from LP-Stop modes are:
+ * USBH  42, 43
+ * OTG   44
+ * ETH   68..71
+ */
+#define IMR1_PD_CORE_MASK 0
+#define IMR2_PD_CORE_MASK (GENMASK_32(12, 10))
+#define IMR3_PD_CORE_MASK (GENMASK_32(7, 4))
+
+/*
+ * Valid wake-up source from LPLV-Stop modes are:
+ * GPIO     0..15
+ * PVD/AVD  16
+ * I2C      21..25
+ * USART    26..33
+ * SPI      36..40
+ * LPTIM    47,48,50,52,53
+ */
+#define IMR1_PD_CORE_RET_MASK (GENMASK_32(15, 0) | BIT(16) | \
+			       GENMASK_32(25, 21) | GENMASK_32(31, 26))
+#define IMR2_PD_CORE_RET_MASK (GENMASK_32(8, 4) | GENMASK_32(16, 15) | \
+			       BIT(18) | GENMASK_32(21, 20))
+#define IMR3_PD_CORE_RET_MASK 0
+
+#endif /* CFG_STM32MP13 */
+
+#ifdef CFG_STM32MP15
+/*
+ * Implementation of  Table 34. Functionalities depending on system
+ * operating mode
+ *
+ * Valid wake-up source from LP-Stop mode are:
+ * I2C   21..25
+ * USART 26..33
+ * SPI   36..41
+ * MDIOS 42
+ * USBH  43
+ * OTG   44
+ * LPTIM 47,48
+ * I2C6  54
+ * IPCC  61,62
+ * HSEM  63,64
+ * SEV   65,66
+ * HDMI  69
+ * ETH   70,71
+ * DTS   72
+ * CPU2  73
+ * CDBG  75
+ */
+#define IMR1_PD_CORE_MASK (GENMASK_32(31, 21))
+#define IMR2_PD_CORE_MASK (GENMASK_32(1, 0) | GENMASK_32(16, 4) | BIT(18) | \
+			   GENMASK_32(22, 20) | GENMASK_32(31, 29))
+#define IMR3_PD_CORE_MASK (GENMASK_32(1, 0) | GENMASK_32(9, 4) | BIT(11))
+
+/*
+ * Valid wake-up source from LPLV-Stop modes are:
+ * GPIOs   0..15
+ * PVD/AVD 16
+ */
+#define IMR1_PD_CORE_RET_MASK (GENMASK_32(15, 0) | BIT(16))
+#define IMR2_PD_CORE_RET_MASK 0
+#define IMR3_PD_CORE_RET_MASK 0
+
+#endif /* CFG_STM32MP15 */
+
+static uint32_t imr_pd_core_mask[EXTI_BANK_NR] = {
+	IMR1_PD_CORE_MASK,
+	IMR2_PD_CORE_MASK,
+	IMR3_PD_CORE_MASK,
+};
+
+static uint32_t imr_pd_core_ret_mask[EXTI_BANK_NR] = {
+	IMR1_PD_CORE_RET_MASK,
+	IMR2_PD_CORE_RET_MASK,
+	IMR3_PD_CORE_RET_MASK,
+};
+
+static uint32_t exti_read_imr(unsigned int bank)
+{
+	return io_read32(stm32_exti_base() + EXTI_C1IMR(bank));
+}
+
+static bool get_domain_state_from_exti(uint8_t domain)
+{
+	unsigned int i = 0;
+
+	for (i = 0; i < EXTI_BANK_NR; i++) {
+		uint32_t imr_mask = imr_pd_core_mask[i];
+		uint32_t imr = exti_read_imr(i);
+
+		if (domain == STM32MP1_PD_CORE_RET)
+			imr_mask |= imr_pd_core_ret_mask[i];
+
+		if (imr & imr_mask)
+			return true;
+	}
+
+	return false;
+}
+
+/* The function returns FALSE if the domain is in use. */
+static bool get_pm_domain_state(uint8_t domain)
+{
+	return get_domain_state_from_exti(domain) == false;
+}
+
+static void dump_pm_domain_state(uint8_t __maybe_unused domain)
+{
+#ifdef POWER_DEBUG
+	unsigned int i = 0;
+
+	for (i = 0; i < EXTI_BANK_NR; i++) {
+		uint32_t imr = exti_read_imr(i);
+		uint32_t imr_mask = imr_pd_core_mask[i];
+		const char *name = "PD_CORE";
+
+		if (domain == STM32MP1_PD_CORE_RET) {
+			imr_mask = imr_pd_core_ret_mask[i];
+			name = "PD_CORE_RET";
+		}
+
+		if (imr & imr_mask) {
+			unsigned int bit = 0;
+
+			/* Log EXTI numbers using domain */
+			for (bit = 0; bit < 32; bit++) {
+				if ((imr & imr_mask) & BIT(bit))
+					IMSG("Domain %s needed for EXTI %u",
+					     name, i * U(32) + bit);
+			}
+		}
+	}
+#endif
+}
+
+#endif  /* CFG_STM32_LOWPOWER_SIP */
 
 #ifdef CFG_EMBED_DTB
 static void save_supported_mode(void *fdt, int pwr_node)
@@ -140,11 +292,16 @@ uint32_t stm32mp1_get_lp_soc_mode(uint32_t psci_mode)
 
 	mode = deepest_suspend_mode;
 
+	dump_pm_domain_state(STM32MP1_PD_CORE);
+	dump_pm_domain_state(STM32MP1_PD_CORE_RET);
+
+	/* if PD_CORE_RET is in use don't allow deeper than Standby */
 	if (mode == STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR &&
 	    (!get_pm_domain_state(STM32MP1_PD_CORE_RET) ||
 	     !is_supported_mode(mode)))
 		mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP2;
 
+	/* if PD_CORE is in use don't allow deeper than LPLV-Stop */
 	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2 &&
 	    (!get_pm_domain_state(STM32MP1_PD_CORE) ||
 	     !is_supported_mode(mode)))
@@ -198,6 +355,7 @@ static TEE_Result stm32mp1_init_lp_states(void)
 	void *fdt = NULL;
 	int pwr_node = -1;
 	const fdt32_t *cuint = NULL;
+	TEE_Result __maybe_unused res = TEE_ERROR_GENERIC;
 
 	fdt = get_embedded_dt();
 	if (fdt)

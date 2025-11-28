@@ -187,7 +187,34 @@ static inline void reg_pair_from_64(uint64_t val, uint32_t *reg0,
 	*reg1 = low32_from_64(val);
 }
 
-/* Get and set bit fields  */
+/**
+ * @brief Functions to get and set bit fields in a 32/64-bit register.
+ *
+ * These inline functions allow setting and extracting specific bits in
+ * a register (`reg`) according to a given mask (`mask`). The mask
+ * specifies which bits in the register should be updated or extracted.
+ *
+ * - `set_field`: Modifies specific bits in a register by clearing the
+ *   bits specified by the mask and then setting these bits to the new
+ *   value (`val`).
+ * - `get_field`: Extracts the value of specific bits in a register by
+ *   isolating the bits specified by the mask and then shifting them to
+ *   the rightmost position.
+ *
+ * @param reg The original 32-bit or 64-bit register value.
+ * @param mask A bitmask indicating which bits in the register should be
+ * updated or extracted.
+ * @param val The new value to be inserted into the register at the
+ * positions specified by the mask (only for `set_field` functions).
+ * @return The updated register value with the specified bits set to the
+ * new value (for `set_field` functions), or the value of the bits
+ * specified by the mask, shifted to the rightmost position (for
+ * `get_field` functions).
+ *
+ * Note: These functions exist in both 32-bit (`set_field_u32`,
+ * `get_field_u32`) and 64-bit (`set_field_u64`, `get_field_u64`)
+ * versions.
+ */
 static inline uint32_t get_field_u32(uint32_t reg, uint32_t mask)
 {
 	return (reg & mask) / (mask & ~(mask - 1));

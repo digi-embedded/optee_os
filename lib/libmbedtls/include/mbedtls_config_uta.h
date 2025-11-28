@@ -22,6 +22,8 @@
 
 #define MBEDTLS_SHA1_C
 #define MBEDTLS_SHA256_C
+#define MBEDTLS_SHA384_C
+#define MBEDTLS_SHA512_C
 #define MBEDTLS_MD_C
 #define MBEDTLS_MD5_C
 
@@ -64,7 +66,5 @@
 #define MBEDTLS_CERTS_C
 #define MBEDTLS_PEM_PARSE_C
 #define MBEDTLS_PEM_WRITE_C
-
-#include <mbedtls/check_config.h>
 
 #endif /* __MBEDTLS_CONFIG_UTA_H */

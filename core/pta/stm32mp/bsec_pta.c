@@ -275,6 +275,14 @@ static TEE_Result bsec_pta_state(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
 	return TEE_SUCCESS;
 }
 
+static TEE_Result bsec_pta_debug_state(void)
+{
+	if (stm32_bsec_self_hosted_debug_is_enabled())
+		return TEE_SUCCESS;
+
+	return TEE_ERROR_ACCESS_DENIED;
+}
+
 static TEE_Result bsec_pta_invoke_command(void *pSessionContext __unused,
 					  uint32_t cmd_id,
 					  uint32_t param_types,
@@ -290,6 +298,8 @@ static TEE_Result bsec_pta_invoke_command(void *pSessionContext __unused,
 		return bsec_write_mem(param_types, params);
 	case PTA_BSEC_CMD_GET_STATE:
 		return bsec_pta_state(param_types, params);
+	case PTA_BSEC_CMD_GET_DEBUG_STATE:
+		return bsec_pta_debug_state();
 	default:
 		break;
 	}

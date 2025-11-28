@@ -125,8 +125,10 @@ enum syscfg_io_ids {
 	SYSFG_NB_IO_ID
 };
 
-TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id);
-TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id);
+TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id);
+TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id);
+void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id,
+				   uint32_t pmos, uint32_t nmos);
 
 void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size);
 

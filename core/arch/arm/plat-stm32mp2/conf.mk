@@ -93,6 +93,8 @@ endif
 
 CFG_STM32_CM33TDCID ?= n
 ifeq ($(CFG_STM32_CM33TDCID),y)
+$(call force,CFG_HWRNG_PTA,n)
+CFG_WITH_SOFTWARE_PRNG ?= y
 $(call force,CFG_SCMI_CORTEXM_AGENT,n)
 $(call force,CFG_SCMI_MSG_DRIVERS,n)
 $(call force,CFG_SCMI_PTA,n)
@@ -101,11 +103,13 @@ $(call force,CFG_SCMI_SERVER_CLOCK_CONSUMER,n)
 $(call force,CFG_SCMI_SERVER_PD_CONSUMER,n)
 $(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
 $(call force,CFG_SCMI_SERVER_RESET_CONSUMER,n)
-$(call force,CFG_STM32_BSEC_PTA,n)
-$(call force,CFG_STM32_BSEC3,n)
 $(call force,CFG_STM32_BSEC_WRITE,n)
+$(call force,CFG_STM32_PWR_REGUL,n)
+$(call force,CFG_STM32_TAMP,n)
 $(call force,CFG_STM32MP_PROVISIONING,n)
 $(call force,CFG_TA_STM32MP_NVMEM,n)
+$(call force,CFG_STM32MP2_CLK_CAL,n)
+$(call force,CFG_STM32_PSA_SERVICE,y)
 endif
 
 $(call force,CFG_ARM_GIC_PM,y)
@@ -127,8 +131,9 @@ $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
 $(call force,CFG_STM32_SHARED_IO,y)
 $(call force,CFG_STM32_HSE_MONITORING,y)
 $(call force,CFG_STM32_PWR,y)
-$(call force,CFG_STM32_PWR_REGUL,y)
+CFG_STM32_PWR_REGUL ?= y
 $(call force,CFG_STM32MP_CLK_CORE,y)
+CFG_STM32MP2_CLK_CAL ?= y
 CFG_STM32MP_REMOTEPROC ?= y
 $(call force,CFG_WITH_ARM_TRUSTED_FW,y)
 $(call force,CFG_WITH_LPAE,y)
@@ -144,11 +149,15 @@ endif
 CFG_TZDRAM_START ?= 0x82000000
 CFG_TZDRAM_SIZE  ?= 0x02000000
 
+# Force this mode to keep performance on RSA key operations
+CFG_CORE_UNSAFE_MODEXP ?= y
+
 # Support DDR ranges up to 8GBytes (address range: 0x80000000 + DDR size)
 CFG_CORE_LARGE_PHYS_ADDR ?= y
 CFG_CORE_ARM64_PA_BITS ?= 34
 
-CFG_CORE_HEAP_SIZE ?= 262144
+CFG_TEE_RAM_VA_SIZE ?= 0x400000
+CFG_CORE_HEAP_SIZE ?= 393216
 CFG_CORE_RESERVED_SHM ?= n
 CFG_DTB_MAX_SIZE ?= 262144
 CFG_HALT_CORES_ON_PANIC ?= y
@@ -159,10 +168,6 @@ $(call force,CFG_TEE_CORE_NB_CORE,1)
 endif
 CFG_TEE_CORE_NB_CORE ?= 2
 CFG_STM32MP_OPP_COUNT ?= 3
-
-ifeq ($(CFG_STM32MP21),y)
-CFG_STM32_EXTI ?= n
-endif
 
 CFG_STM32_BSEC3 ?= y
 CFG_STM32_BSEC_WRITE ?= y
@@ -178,6 +183,7 @@ CFG_STM32_HSEM ?= y
 CFG_STM32_I2C ?= y
 CFG_STM32_IAC ?= y
 CFG_STM32_IPCC ?= y
+CFG_STM32_IRQ_NOTIF ?= y
 CFG_STM32_IWDG ?= y
 CFG_STM32_LPTIMER ?= y
 CFG_STM32_OMM ?= y
@@ -242,6 +248,31 @@ ifeq ($(call cfg-one-enabled, CFG_STM32_CRYP CFG_STM32_HASH CFG_STM32_PKA \
 $(call force,CFG_STM32_CRYPTO_DRIVER,y)
 endif
 
+# SAES support 192bits on STM32MP21 but not on STM32MP23/25
+# Force CFG_STM32_SAES_SW_FALLBACK=n on STM32MP21
+# Default enable CFG_STM32_SAES_SW_FALLBACK on STM32MP23/25
+ifeq ($(CFG_STM32MP21),y)
+$(call force,CFG_STM32_SAES_SW_FALLBACK,n)
+else
+CFG_STM32_SAES_SW_FALLBACK ?= y
+endif
+
+# PSA-ADAC and DBGMCU mailbox
+# OP-TEE support on STM32MP21 CA35TDCID but not on STM32MP21 CM33TDCID
+# nor STM32MP23/25
+# Default disable CFG_PSA_ADAC and CFG_STM32_DBGMCU_MBX on STM32MP21 CM33TD
+# and STM32MP23/25
+ifeq ($(CFG_STM32MP21)-$(CFG_STM32_CM33TDCID), y-n)
+CFG_PSA_ADAC ?= y
+ifeq ($(CFG_PSA_ADAC), y)
+$(call force,CFG_PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT,y,Explicit Transport API not yet defined)
+$(call force,CFG_STM32_DBGMCU_MBX,y,Mandated by CFG_PSA_ADAC)
+endif
+else
+$(call force,CFG_PSA_ADAC,n)
+$(call force,CFG_STM32_DBGMCU_MBX,n)
+endif
+
 CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
 CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
 ifeq ($(CFG_REMOTEPROC_PTA),y)
@@ -252,6 +283,16 @@ RPROC_SIGN_KEY ?= keys/default.pem
 # Increase the RESERVED VA SPACE to be able to map reserved-memory regions
 # assigned to the remote processor.
 CFG_RESERVED_VASPACE_SIZE = 32 * 1024 * 1024
+
+# Co-processor encryption using test key is dedicated to insecure development
+# configuration only.
+CFG_REMOTEPROC_ENC_TESTKEY ?= n
+ifeq ($(CFG_REMOTEPROC_ENC_TESTKEY),y)
+$(call force,CFG_INSECURE,y,Required by CFG_REMOTEPROC_ENC_TESTKEY)
+endif
+
+# Co-processor public key verification against OTP fuses.
+CFG_REMOTEPROC_PUB_KEY_VERIFY ?= n
 endif
 
 # Default enable HWRNG PTA support
@@ -327,6 +368,10 @@ endif
 CFG_DRIVERS_FIREWALL ?= y
 ifeq ($(call cfg-one-enabled, CFG_STM32_RISAF CFG_STM32_RIFSC),y)
 $(call force,CFG_DRIVERS_FIREWALL,y)
+endif
+
+ifeq ($(CFG_STM32_PSA_SERVICE),y)
+$(call force,CFG_RSE_COMMS,y)
 endif
 
 # Trusted User Interface

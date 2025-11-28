@@ -21,6 +21,9 @@ struct mod_tfm_mbx_channel_config {
 
     /*! Identifier of the driver API to bind to */
     fwk_id_t driver_api_id;
+
+    /*! Mailbox handler to raise notifcation when request done */
+    void *chan_mbx;
 };
 
 /*!

@@ -122,7 +122,7 @@ comp-cppflags-$2 = $$(filter-out $$(CPPFLAGS_REMOVE) $$(cppflags-remove) \
 		      $$(cppflags-lib$$(comp-lib-$2)) $$(cppflags-$2)) \
 		      -D__FILE_ID__=$$(subst -,_,$$(subst /,_,$$(subst .,_,$1)))
 
-comp-flags-$2 += -MD -MF $$(comp-dep-$2) -MT $$@
+comp-flags-$2 += -MD -MF $$(comp-dep-$2) -MP -MT $$@
 comp-flags-$2 += $$(comp-cppflags-$2)
 
 comp-cmd-$2 = $$(comp-compiler-$2) $$(comp-flags-$2) -c $$< -o $$@

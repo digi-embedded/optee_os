@@ -20,11 +20,14 @@ properties:
   reg:
     maxItems: 1
 
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+
   interrupts:
     description: contains the PWR Wake-up pin interrupt line.
     maxItems: 1
-
-  wakeup-parent: true
 
   wakeup-gpios:
     description: contains a list of GPIO spec describing each wake-up pin.
@@ -43,6 +46,15 @@ patternProperties:
       vdd-supply:
         description: Input supply phandle(s) for vdd and vddio input
 
+      st,iocomp:
+        $ref: "/schemas/types.yaml#/definitions/uint32-array"
+        description:
+          The fixed compensation code in the following order <PMOS NMOS>.
+          If the property is not present in the node, the automatic compensation
+          is enabled.
+        minItems: 2
+        maxItems: 2
+
     patternProperties:
       ".*-supply$":
         description: Input supply phandle(s) for this node
@@ -58,9 +70,10 @@ examples:
     pwr: pwr@44210000 {
       compatible = "st,stm32mp25-pwr";
       reg = <0x44210000 0x400>;
-      wakeup-parent = <&exti1>;
       wakeup-gpios = <0>, <0>, <0>, <0>, <&gpiog 2 GPIO_PULL_UP>, <0>;
       interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
+      interrupt-controller;
+      #interrupt-cells = <2>;
 
       vdd33ucpd: vdd33ucpd {
         compatible = "st,stm32mp25-pwr-regu";

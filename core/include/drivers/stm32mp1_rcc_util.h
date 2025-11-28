@@ -10,6 +10,8 @@
 vaddr_t stm32_rcc_base(void);
 void stm32_reset_system(void);
 
+vaddr_t stm32_exti_base(void);
+
 /* Helper from platform RCC clock driver */
 struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
 unsigned int stm32mp_rcc_clk_to_clock_id(struct clk *clk);
@@ -23,19 +25,6 @@ extern const struct clk_ops stm32mp1_clk_ops;
 /* Helper from platform RCC reset driver */
 struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
 #endif
-
-#ifdef CFG_STM32MP1_SHARED_RESOURCES
-/* Register parent clocks of @clock (ID used in clock DT bindings) as secure */
-void stm32mp_register_clock_parents_secure(unsigned long clock_id);
-#else
-static inline
-void stm32mp_register_clock_parents_secure(unsigned long clock_id __unused)
-{
-}
-#endif
-
-/* Protect the MCU clock subsytem */
-void stm32mp1_clk_mcuss_protect(bool enable);
 
 /* Save PLL1 configuration data for low power sequence if any */
 void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size);

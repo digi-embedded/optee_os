@@ -12,7 +12,6 @@
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
 #include <drivers/rtc.h>
-#include <drivers/stm32_exti.h>
 #include <drivers/stm32_rtc.h>
 #include <drivers/stm32_rif.h>
 #include <io.h>
@@ -184,12 +183,9 @@
 #define MS_PER_SEC			U(1000)
 #define TIMEOUT_US_RTC_GENERIC		U(100000)
 
-#define RTC_EXTI_WKUP_MP25		U(22)
-
 struct rtc_compat {
 	bool has_seccfgr;
 	bool has_rif_support;
-	uint32_t exti_line_nb;
 };
 
 /*
@@ -207,6 +203,7 @@ struct rtc_compat {
  * @itr_handler: Interrupt handler
  * @notif_id: Notification ID
  * @wait_alarm_return_status: Status of the wait alarm
+ * @rtc: information for OP-TEE RTC device
  */
 struct rtc_device {
 	struct io_pa_va base;
@@ -222,9 +219,7 @@ struct rtc_device {
 	struct itr_handler *itr_handler;
 	uint32_t notif_id;
 	enum rtc_wait_alarm_status wait_alarm_return_status;
-	struct stm32_exti_pdata *exti;
 	struct rtc *rtc;
-	bool alarm_wake;
 };
 
 /* Expect a single RTC instance */
@@ -787,23 +782,10 @@ static TEE_Result parse_dt(const void *fdt, int node)
 	}
 
 	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
-		if (IS_ENABLED(CFG_STM32_EXTI))
+		if (interrupt_can_set_wake(rtc_dev.itr_chip))
 			rtc_dev.rtc->is_wakeup_source = true;
 		else
 			DMSG("RTC wakeup source ignored");
-	}
-
-	if (rtc_dev.rtc->is_wakeup_source) {
-		res = dt_driver_device_from_node_idx_prop("wakeup-parent",
-							  fdt, node, 0,
-							  DT_DRIVER_INTERRUPT,
-							  &rtc_dev.exti);
-		if (res == TEE_ERROR_ITEM_NOT_FOUND) {
-			EMSG("DT property 'wakeup-source' requires 'wakeup-parent'");
-			return res;
-		}
-		if (res)
-			return res;
 	}
 
 	if (!rtc_dev.compat.has_rif_support)
@@ -837,7 +819,6 @@ static TEE_Result parse_dt(const void *fdt, int node)
 		rif_conf = fdt32_to_cpu(cuint[i]);
 
 		stm32_rif_parse_cfg(rif_conf, rtc_dev.conf_data,
-				    RTC_NB_MAX_CID_SUPPORTED,
 				    RTC_NB_RIF_RESOURCES);
 	}
 
@@ -1259,24 +1240,7 @@ static TEE_Result stm32_rtc_set_alarm_wakeup_status(struct rtc *rtc __unused,
 	if (!rtc_dev.rtc->is_wakeup_source)
 		return TEE_ERROR_NOT_SUPPORTED;
 
-	rtc_dev.alarm_wake = status;
-	return TEE_SUCCESS;
-}
-
-static TEE_Result
-stm32_rtc_pm(enum pm_op op, uint32_t pm_hint __unused,
-	     const struct pm_callback_handle *pm_handle __unused)
-{
-	if (op == PM_OP_SUSPEND) {
-#ifdef STM32_EXTI
-		if (rtc_dev.alarm_wake)
-			stm32_exti_enable_wake(rtc_dev.exti,
-					       rtc_dev.compat.exti_line_nb);
-		else
-			stm32_exti_disable_wake(rtc_dev.exti,
-						rtc_dev.compat.exti_line_nb);
-#endif
-	}
+	interrupt_set_wake(rtc_dev.itr_chip, rtc_dev.itr_num, status);
 
 	return TEE_SUCCESS;
 }
@@ -1367,10 +1331,6 @@ static TEE_Result stm32_rtc_probe(const void *fdt, int node,
 		if (res)
 			return res;
 
-		if (rtc_dev.rtc->is_wakeup_source)
-			register_pm_core_service_cb(stm32_rtc_pm, NULL,
-						    "stm32-rtc");
-
 		res = stm32_rtc_init();
 		if (res)
 			return res;
@@ -1385,7 +1345,6 @@ static TEE_Result stm32_rtc_probe(const void *fdt, int node,
 static struct rtc_compat mp25_compat = {
 	.has_seccfgr = true,
 	.has_rif_support = true,
-	.exti_line_nb = RTC_EXTI_WKUP_MP25,
 };
 
 static struct rtc_compat mp15_compat = {

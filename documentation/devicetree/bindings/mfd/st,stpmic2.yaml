@@ -28,9 +28,8 @@ properties:
   reg:
     const: 0x33
 
-  st,wakeup-pin-number:
-    description: Pin used as wake-up source when for MP2
-    $ref: /schemas/types.yaml#/definitions/uint32
+  interrupts:
+    maxItems: 1
 
   st,pmic-it-id:
     description: PMIC interruptions ids to forward to the non-secure world
@@ -145,6 +144,10 @@ properties:
 
               regulator-off-in-suspend:
                 description: regulator should be off in suspend state.
+                  If it is controlled by a pwrctrl line, it is turned off
+                  once the pwrctrl state changes.
+                  If st,pwrctrl-enable is false, it is turned off during
+                  suspend preparation and re-enabled during resume.
                 type: boolean
 
               regulator-suspend-microvolt:
@@ -172,7 +175,7 @@ examples:
         compatible = "st,stpmic2";
         reg = <0x33>;
 
-        st,wakeup-pin-number = <1>;
+        interrupts-extended = <&exti1 52 IRQ_TYPE_EDGE_FALLING>;
         st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
         st,notif-it-id = <0 1>;
 

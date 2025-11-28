@@ -36,7 +36,7 @@ TEE_Result counter_start(struct counter_device *counter, void *config)
 	return counter->ops->start(counter, config);
 }
 
-/*
+/**
  * some counter device could not be stopped
  * return TEE_SUCCESS if no stop ops
  */
@@ -70,42 +70,154 @@ TEE_Result counter_get_value(struct counter_device *counter, unsigned int *ticks
 	return counter->ops->get_value(counter, ticks);
 }
 
-TEE_Result counter_set_alarm(struct counter_device *counter)
+TEE_Result counter_set_threshold(struct counter_device *counter,
+				 unsigned int ticks)
 {
-	struct alarm_cfg *alarm = NULL;
-	TEE_Result res = TEE_SUCCESS;
+	TEE_Result res = TEE_ERROR_GENERIC;
 
 	assert(counter && counter->ops);
 
-	alarm = &counter->alarm;
-
-	if (alarm->is_enabled || !alarm->callback || !counter->ops->set_alarm)
+	if (!counter->ops->set_threshold)
 		return TEE_ERROR_NOT_SUPPORTED;
 
-	if (alarm->ticks > counter->max_ticks)
-		return TEE_ERROR_NOT_SUPPORTED;
+	if (ticks > counter->ceiling)
+		return TEE_ERROR_BAD_PARAMETERS;
 
-	res = counter->ops->set_alarm(counter);
-	if (!res)
-		counter->alarm.is_enabled = true;
+	res = counter->ops->set_threshold(counter, ticks);
+	if (res)
+		return res;
 
-	return res;
+	counter->threshold = ticks;
+
+	return TEE_SUCCESS;
 }
 
-TEE_Result counter_cancel_alarm(struct counter_device *counter)
+TEE_Result counter_set_ceiling(struct counter_device *counter,
+			       unsigned int ceiling)
 {
-	TEE_Result res = TEE_SUCCESS;
+	TEE_Result res = TEE_ERROR_GENERIC;
 
-	assert(counter);
+	assert(counter && counter->ops);
 
-	if (!counter->ops->cancel_alarm)
+	if (!counter->ops->set_ceiling)
 		return TEE_ERROR_NOT_SUPPORTED;
 
-	res = counter->ops->cancel_alarm(counter);
-	if (!res)
-		counter->alarm.is_enabled = false;
+	if (ceiling > counter->max_ticks || ceiling < counter->threshold)
+		return TEE_ERROR_BAD_PARAMETERS;
 
-	return res;
+	res = counter->ops->set_ceiling(counter, ceiling);
+	if (res)
+		return res;
+
+	counter->ceiling = ceiling;
+
+	return TEE_SUCCESS;
+}
+
+TEE_Result counter_call_callback(struct counter_device *counter,
+				 enum counter_event_type event_type)
+{
+	struct counter_event *event = &counter->events[event_type];
+
+	if (!event->is_enabled)
+		return TEE_ERROR_BAD_STATE;
+
+	if (!event->callback)
+		return TEE_ERROR_NOT_IMPLEMENTED;
+
+	event->callback(event->priv, event_type);
+
+	return TEE_SUCCESS;
+}
+
+/**
+ * counter_set_threshold and counter_set_ceiling must be called before enabling
+ * an event if needed to adjust threshold and ceiling.
+ */
+TEE_Result counter_enable_event(struct counter_device *counter,
+				enum counter_event_type event_type,
+				counter_event_cb_t callback, void *priv)
+{
+	struct counter_event *event = NULL;
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	assert(counter && counter->ops);
+
+	if (!counter->ops->enable_event)
+		return TEE_ERROR_NOT_SUPPORTED;
+
+	switch (event_type) {
+	case COUNTER_EVENT_OVERFLOW:
+	case COUNTER_EVENT_THRESHOLD:
+		break;
+	default:
+		return TEE_ERROR_NOT_IMPLEMENTED;
+	}
+
+	if (!callback)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	event = &counter->events[event_type];
+	event->is_enabled = true;
+	event->callback = callback;
+	event->priv = priv;
+	res = counter->ops->enable_event(counter, event_type);
+	if (res) {
+		event->is_enabled = false;
+		event->callback = NULL;
+		event->priv = NULL;
+		return res;
+	}
+
+	return TEE_SUCCESS;
+}
+
+TEE_Result counter_disable_event(struct counter_device *counter,
+				 enum counter_event_type event_type)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	assert(counter && counter->ops);
+
+	if (!counter->ops->disable_event)
+		return TEE_ERROR_NOT_SUPPORTED;
+
+	switch (event_type) {
+	case COUNTER_EVENT_OVERFLOW:
+	case COUNTER_EVENT_THRESHOLD:
+		break;
+	default:
+		return TEE_ERROR_NOT_IMPLEMENTED;
+	}
+	if (!counter->events[event_type].is_enabled)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = counter->ops->disable_event(counter, event_type);
+	if (res)
+		return res;
+
+	counter->events[event_type].is_enabled = false;
+	counter->events[event_type].callback = NULL;
+	counter->events[event_type].priv = NULL;
+
+	return TEE_SUCCESS;
+}
+
+TEE_Result counter_disable_all_events(struct counter_device *counter)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	assert(counter && counter->ops);
+
+	for (int i = 0; i < COUNTER_NB_EVENT; i++) {
+		if (!counter->events[i].is_enabled)
+			continue;
+		res = counter_disable_event(counter, i);
+		if (res)
+			return res;
+	}
+
+	return TEE_SUCCESS;
 }
 
 void counter_release_config(struct counter_device *counter,

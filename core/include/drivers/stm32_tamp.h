@@ -109,7 +109,6 @@ struct stm32_tamp_compat {
 	uint32_t int_tamp_size;
 	uint32_t pin_map_size;
 	uint32_t tags;
-	uint32_t exti_wakeup_line;
 };
 
 struct stm32_tamp_platdata {
@@ -118,8 +117,6 @@ struct stm32_tamp_platdata {
 	struct stm32_tamp_compat *compat;
 	struct rif_conf_data *conf_data;
 	struct stm32_bkpregs_conf *bkpregs_conf;
-	struct stm32_exti_pdata *exti;
-	int it;
 	unsigned int nb_resources;
 	uint32_t passive_conf;
 	uint32_t active_conf;

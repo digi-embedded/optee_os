@@ -12,9 +12,12 @@
 
 #include <assert.h>
 #include <drivers/clk_dt.h>
-#include <drivers/stm32_etzpc.h>
 #include <drivers/firewall.h>
+#include <drivers/firewall_device.h>
 #include <drivers/stm32mp_dt_bindings.h>
+#ifdef CFG_STM32MP15
+#include <drivers/stm32mp1_rcc.h>
+#endif
 #include <initcall.h>
 #include <io.h>
 #include <keep.h>
@@ -63,6 +66,15 @@
 #define TZMA_PM_LOCK_BIT		BIT(15)
 #define TZMA_PM_VALUE_MASK		GENMASK_32(9, 0)
 
+/* ETZPC DECPROT bit field values */
+enum etzpc_decprot_attributes {
+	ETZPC_DECPROT_S_RW = 0,
+	ETZPC_DECPROT_NS_R_S_W = 1,
+	ETZPC_DECPROT_MCU_ISOLATION = 2,
+	ETZPC_DECPROT_NS_RW = 3,
+	ETZPC_DECPROT_MAX = 4,
+};
+
 /*
  * struct stm32_etzpc_platdata - Driver data set at initialization
  *
@@ -106,26 +118,11 @@ struct etzpc_device {
 };
 
 static const char *const etzpc_decprot_strings[] __maybe_unused = {
-	"ETZPC_DECPROT_S_RW",
-	"ETZPC_DECPROT_NS_R_S_W",
-	"ETZPC_DECPROT_MCU_ISOLATION",
-	"ETZPC_DECPROT_NS_RW",
+	[ETZPC_DECPROT_S_RW] = "ETZPC_DECPROT_S_RW",
+	[ETZPC_DECPROT_NS_R_S_W] = "ETZPC_DECPROT_NS_R_S_W",
+	[ETZPC_DECPROT_MCU_ISOLATION] = "ETZPC_DECPROT_MCU_ISOLATION",
+	[ETZPC_DECPROT_NS_RW] = "ETZPC_DECPROT_NS_RW",
 };
-
-/* Temporary firewall controller reference */
-static struct firewall_controller *fw_ctrl;
-
-TEE_Result stm32_etzpc_check_ns_access(unsigned int id)
-{
-	uint32_t query_arg = DECPROT(id, DECPROT_NS_RW, DECPROT_UNLOCK);
-	struct firewall_query query = {
-		.arg_count = 1,
-		.args = &query_arg,
-		.ctrl = fw_ctrl,
-	};
-
-	return firewall_check_access(&query);
-}
 
 static uint32_t etzpc_lock(struct etzpc_device *dev)
 {
@@ -166,6 +163,44 @@ static enum etzpc_decprot_attributes etzpc_binding2decprot(uint32_t mode)
 	}
 }
 
+static void
+sanitize_decprot_config(uint32_t decprot_id __maybe_unused,
+			enum etzpc_decprot_attributes attr __maybe_unused)
+{
+#ifdef CFG_STM32MP15
+	/*
+	 * STM32MP15: check dependency on RCC TZEN/MCKPROT configuration
+	 * when a ETZPC resource is secured or isolated for Cortex-M
+	 * coprocessor.
+	 */
+	switch (attr) {
+	case ETZPC_DECPROT_S_RW:
+	case ETZPC_DECPROT_NS_R_S_W:
+		if (!stm32_rcc_is_secure()) {
+			IMSG("WARNING: RCC tzen:0, insecure ETZPC hardening %"PRIu32":%s",
+			     decprot_id, etzpc_decprot_strings[attr]);
+			if (!IS_ENABLED(CFG_INSECURE))
+				panic();
+		}
+		break;
+	case ETZPC_DECPROT_MCU_ISOLATION:
+		if (!stm32_rcc_is_secure() || !stm32_rcc_is_mckprot()) {
+			IMSG("WARNING: RCC tzen:%u mckprot:%u, insecure ETZPC hardening %"PRIu32":%s",
+			     stm32_rcc_is_secure(), stm32_rcc_is_mckprot(),
+			     decprot_id, etzpc_decprot_strings[attr]);
+			if (!IS_ENABLED(CFG_INSECURE))
+				panic();
+		}
+		break;
+	case ETZPC_DECPROT_NS_RW:
+		break;
+	default:
+		assert(0);
+		break;
+	}
+#endif
+}
+
 static void etzpc_do_configure_decprot(struct etzpc_device *etzpc_dev,
 				       uint32_t decprot_id,
 				       enum etzpc_decprot_attributes attr)
@@ -180,6 +215,8 @@ static void etzpc_do_configure_decprot(struct etzpc_device *etzpc_dev,
 
 	FMSG("ID : %"PRIu32", CONF %s", decprot_id,
 	     etzpc_decprot_strings[attr]);
+
+	sanitize_decprot_config(decprot_id, attr);
 
 	exceptions = etzpc_lock(etzpc_dev);
 
@@ -361,20 +398,7 @@ static TEE_Result stm32_etzpc_check_access(struct firewall_query *firewall)
 	if (id < etzpc_dev->ddata->num_per_sec) {
 		attr = etzpc_do_get_decprot(etzpc_dev, id);
 
-		/*
-		 * Access authorized if the attributes requested match the
-		 * current configuration, or if the requester is secure and
-		 * the device is not MCU isolated, or if the requester is
-		 * non-secure and the device is not MCU isolated and not secure
-		 */
-		if (attr == attr_req ||
-		    ((attr_req == ETZPC_DECPROT_S_RW ||
-		      attr_req == ETZPC_DECPROT_NS_R_S_W) && attr !=
-		     ETZPC_DECPROT_MCU_ISOLATION) ||
-		    ((attr_req == ETZPC_DECPROT_NS_RW ||
-		      attr_req == ETZPC_DECPROT_NS_R_S_W) && attr !=
-		     ETZPC_DECPROT_MCU_ISOLATION && attr !=
-		     ETZPC_DECPROT_S_RW))
+		if (attr == attr_req)
 			return TEE_SUCCESS;
 		else
 			return TEE_ERROR_ACCESS_DENIED;
@@ -478,7 +502,7 @@ static bool pager_permits_decprot_config(uint32_t decprot_id,
 
 	if (stm32mp1_ram_intersect_pager_ram(ram_base, ram_size) &&
 	    attr != ETZPC_DECPROT_S_RW) {
-		EMSG("Internal RAM %#"PRIxPA"..%#"PRIxPA" is used by pager, shall be secure",
+		EMSG("Internal RAM %#"PRIxPA"..%#"PRIxPA" is used by pager, must be secure",
 		     ram_base, ram_base + ram_size);
 		return false;
 	}
@@ -493,12 +517,17 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 	struct etzpc_device *etzpc_dev = firewall->ctrl->priv;
 	enum etzpc_decprot_attributes attr = ETZPC_DECPROT_MAX;
 	unsigned int total_sz = 0;
+	bool lock = false;
+	uint32_t mode = 0;
 	uint32_t id = 0;
 
 	if (firewall->arg_count != 1)
 		return TEE_ERROR_BAD_PARAMETERS;
 
 	id = firewall->args[0] & ETZPC_ID_MASK;
+	mode = (firewall->args[0] & ETZPC_MODE_MASK) >> ETZPC_MODE_SHIFT;
+	attr = etzpc_binding2decprot(mode);
+	lock = firewall->args[0] & ETZPC_LOCK_MASK;
 
 	if (id < etzpc_dev->ddata->num_per_sec &&
 	    (id == STM32MP1_ETZPC_SRAM1_ID || id == STM32MP1_ETZPC_SRAM2_ID ||
@@ -506,8 +535,6 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 	     id == STM32MP1_ETZPC_SRAM4_ID || id == STM32MP1_ETZPC_RETRAM_ID ||
 #endif /* defined(CFG_STM32MP15) */
 	     id == STM32MP1_ETZPC_SRAM3_ID)) {
-		uint32_t mode = 0;
-
 		paddr = stm32mp1_pa_or_sram_alias_pa(paddr);
 
 		switch (id) {
@@ -537,10 +564,6 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 			panic();
 		}
 
-		mode = (firewall->args[0] & ETZPC_MODE_MASK) >>
-		       ETZPC_MODE_SHIFT;
-		attr = etzpc_binding2decprot(mode);
-
 		if (decprot_is_locked(etzpc_dev, id)) {
 			if (etzpc_do_get_decprot(etzpc_dev, id) != attr) {
 				EMSG("Internal RAM configuration locked");
@@ -556,7 +579,7 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 #endif
 
 		etzpc_do_configure_decprot(etzpc_dev, id, attr);
-		if (firewall->args[0] & ETZPC_LOCK_MASK)
+		if (lock)
 			etzpc_do_lock_decprot(etzpc_dev, id);
 
 		return TEE_SUCCESS;
@@ -590,6 +613,11 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 
 		total_sz = ROUNDUP_DIV(size, SMALL_PAGE_SIZE);
 
+#ifdef CFG_STM32MP15
+		if (!pager_permits_decprot_config(id, attr))
+			return TEE_ERROR_ACCESS_DENIED;
+#endif
+
 		if (tzma_is_locked(etzpc_dev, tzma_id)) {
 			if (etzpc_do_get_tzma(etzpc_dev, tzma_id) != total_sz) {
 				EMSG("TZMA configuration locked");
@@ -600,6 +628,8 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
 		}
 
 		etzpc_do_configure_tzma(etzpc_dev, tzma_id, total_sz);
+		if (lock)
+			etzpc_do_lock_tzma(etzpc_dev, tzma_id);
 	} else {
 		EMSG("Unknown firewall ID: %"PRIu32, id);
 
@@ -906,8 +936,6 @@ static TEE_Result stm32_etzpc_probe(const void *fdt, int node,
 	res = stm32_etzpc_dt_probe_bus(fdt, node, controller);
 	if (res)
 		goto err;
-
-	fw_ctrl = controller;
 
 	register_pm_core_service_cb(etzpc_pm, etzpc_dev, "stm32-etzpc");
 

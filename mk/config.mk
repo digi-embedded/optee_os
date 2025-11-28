@@ -1133,6 +1133,17 @@ CFG_HALT_CORES_ON_PANIC ?= n
 CFG_HALT_CORES_ON_PANIC_SGI ?= 15
 $(eval $(call cfg-depends-all,CFG_HALT_CORES_ON_PANIC,CFG_GIC))
 
+# CFG_CORE_UNSAFE_MODEXP, when enabled, makes modular exponentiation on TEE
+# core use 'unsafe' algorithm having better performance. To resist against
+# timing attacks, 'safe' one is designed to take constant-time that is
+# generally much slower.
+CFG_CORE_UNSAFE_MODEXP ?= n
+
+# CFG_TA_MBEDTLS_UNSAFE_MODEXP, similar to CFG_CORE_UNSAFE_MODEXP,
+# when enabled, makes MBedTLS library for TAs use 'unsafe' modular
+# exponentiation algorithm.
+CFG_TA_MEBDTLS_UNSAFE_MODEXP ?= n
+
 # CFG_RAM_CONSOLE, when enabled, stores in TA RAM all trace messages emitted
 # as soon as TA RAM memory pool is initialized. When a console driver registers,
 # it prints logged messages and frees the RAM console memory.

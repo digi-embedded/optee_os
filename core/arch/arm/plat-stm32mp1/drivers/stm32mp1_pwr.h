@@ -70,11 +70,9 @@
  * Flags for PWR wakeup event management
  * PWR_WKUP_FLAG_RISING - Detect event on signal rising edge
  * PWR_WKUP_FLAG_FALLING - Detect event on signal falling edge
- * PWR_WKUP_FLAG_THREADED - Notify event in the threaded context
  */
 #define PWR_WKUP_FLAG_RISING	0
 #define PWR_WKUP_FLAG_FALLING	BIT(0)
-#define PWR_WKUP_FLAG_THREADED	BIT(1)
 
 enum pwr_regulator {
 	PWR_REG11 = 0,
@@ -91,29 +89,6 @@ bool stm32mp1_pwr_regulator_is_enabled(enum pwr_regulator id);
 
 /* Returns the registered regulator related to @id or NULL */
 struct regulator *stm32mp1_pwr_get_regulator(enum pwr_regulator id);
-
-/*
- * TO BE REMOVED: PWR interrupt should register to interrupt framework
- */
-
-/* wakeup-pins irq chip */
-enum pwr_wkup_pins {
-	PWR_WKUP_PIN1 = 0,
-	PWR_WKUP_PIN2,
-	PWR_WKUP_PIN3,
-	PWR_WKUP_PIN4,
-	PWR_WKUP_PIN5,
-	PWR_WKUP_PIN6,
-	PWR_NB_WAKEUPPINS
-};
-
-/* Allocate and register a PWR interrupt handler */
-TEE_Result stm32mp1_pwr_itr_alloc_add(const void *fdt, int wp_node, size_t it,
-				      itr_handler_t handler, uint32_t flags,
-				      void *data, struct itr_handler **phdl);
-
-void stm32mp1_pwr_itr_enable(size_t it);
-void stm32mp1_pwr_itr_disable(size_t it);
 
 void stm32mp_pwr_monitoring_enable(void);
 

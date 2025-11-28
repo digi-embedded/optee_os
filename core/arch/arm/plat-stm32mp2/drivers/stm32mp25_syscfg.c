@@ -25,6 +25,7 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
 #define SYSCFG_CCCR_CS				BIT(9)
 #define SYSCFG_CCCR_EN				BIT(8)
 #define SYSCFG_CCCR_RAPSRC_MASK			GENMASK_32(7, 4)
+#define SYSCFG_CCCR_RAPSRC_SHIFT		U(4)
 #define SYSCFG_CCCR_RANSRC_MASK			GENMASK_32(3, 0)
 
 /* IO compensation CCSR registers bit definition */
@@ -51,6 +52,10 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
 /* Safe Reset register definition */
 #define SYSCFG_SAFERSTCR		SYSCON_ID(SYSCON_SYSCFG, 0x2018U)
 #define SYSCFG_SAFERSTCR_EN		BIT(0)
+
+/* SYSCFG device ID register definition */
+#define SYSCFG_IDC			SYSCON_ID(SYSCON_SYSCFG, 0x6400U)
+#define SYSCFG_IDC_DEV_ID_MASK		GENMASK_32(11, 0)
 
 /*
  * SYSCFG IO compensation register offsets (base relative)
@@ -84,7 +89,7 @@ uint32_t stm32mp_syscfg_read(uint32_t id)
 	return io_read32(stm32mp_syscfg_base(id) + SYSCON_OFFSET(id));
 }
 
-TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id)
 {
 	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
 			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
@@ -114,7 +119,7 @@ TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id)
 	return TEE_SUCCESS;
 }
 
-TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id)
+TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id)
 {
 	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
 			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
@@ -138,6 +143,20 @@ TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id)
 	io_clrbits32(cccr_addr, SYSCFG_CCCR_EN);
 
 	return TEE_SUCCESS;
+}
+
+void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id,
+				   uint32_t pmos, uint32_t nmos)
+{
+	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
+			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
+	uint32_t value = 0;
+
+	FMSG("Fixed IO comp for id %u", id);
+
+	value = ((pmos << SYSCFG_CCCR_RAPSRC_SHIFT) & SYSCFG_CCCR_RAPSRC_MASK) |
+		(nmos & SYSCFG_CCCR_RANSRC_MASK);
+	io_write32(cccr_addr, value);
 }
 
 void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size)
@@ -182,4 +201,11 @@ void stm32mp25_syscfg_set_safe_reset(bool status)
 		io_setbits32(addr, SYSCFG_SAFERSTCR_EN);
 	else
 		io_clrbits32(addr, SYSCFG_SAFERSTCR_EN);
+}
+
+uint32_t stm32mp_syscfg_get_chip_dev_id(void)
+{
+	vaddr_t addr = stm32mp_syscfg_base(SYSCON_SYSCFG) + SYSCFG_IDC;
+
+	return io_read32(addr) & SYSCFG_IDC_DEV_ID_MASK;
 }

@@ -13,6 +13,7 @@
 #include "stm32mp215f-dk-ca35tdcid-resmem.dtsi"
 #include "stm32mp215f-dk-ca35tdcid-rif.dtsi"
 #include "stm32mp21-pinctrl.dtsi"
+#include "stm32mp21-st-scmi-cfg.dtsi"
 #include "stm32mp21xxan-pinctrl.dtsi"
 
 / {
@@ -55,10 +56,11 @@
 };
 
 &i2c3 {
-	pinctrl-names = "default";
+	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&i2c3_pins_a>;
-	i2c-scl-rising-time-ns = <185>;
-	i2c-scl-falling-time-ns = <20>;
+	pinctrl-1 = <&i2c3_sleep_pins_a>;
+	i2c-scl-rising-time-ns = <31>;
+	i2c-scl-falling-time-ns = <2>;
 	clock-frequency = <400000>;
 	status = "okay";
 	#address-cells = <1>;
@@ -67,10 +69,10 @@
 	pmic2: pmic@33 {
 		compatible = "st,stpmic2l";
 		reg = <0x33>;
-		st,wakeup-pin-number = <1>;
+		interrupts-extended = <&exti1 52 IRQ_TYPE_EDGE_FALLING>;
+		wakeup-source;
 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
 		st,notif-it-id = <0 1>;
-		wakeup-parent = <&pwr>;
 		status = "okay";
 
 		regulators {
@@ -242,6 +244,27 @@
 					regulator-off-in-suspend;
 				};
 			};
+			v_gpo3: gpo3 {
+				regulator-name = "gpo3";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-always-on;
+				st,pwrctrl-sel = <1>;
+				st,pwrctrl-enable;
+
+				default {
+					regulator-on-in-suspend;
+				};
+				lplv {
+					regulator-on-in-suspend;
+				};
+				standby {
+					regulator-on-in-suspend;
+				};
+				off {
+					regulator-off-in-suspend;
+				};
+			};
 		};
 	};
 };
@@ -263,13 +286,6 @@
 	status = "okay";
 	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
 
-	vdd33ucpd {
-		status = "okay";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		vdd33ucpd-supply = <&vdd3v3_usb>;
-	};
-
 	vdda18adc {
 		status = "okay";
 		regulator-min-microvolt = <1800000>;
@@ -285,11 +301,15 @@
 	vddio2 {
 		status = "okay";
 		vddio2-supply = <&vdda_1v8>;
+		/* Keep always-on because it can not be enabled by non secure */
+		regulator-always-on;
 	};
 
 	vddio3 {
 		status = "okay";
 		vddio3-supply = <&vddio_pmic>;
+		/* Keep always-on because it can not be enabled by non secure */
+		regulator-always-on;
 	};
 
 	vddio {
@@ -315,30 +335,40 @@
 	};
 };
 
+&rtc {
+	status = "okay";
+};
+
 &saes {
 	status = "okay";
 };
 
-&scmi_regu {
-	scmi_vddcore: voltd-vddcore {
-		reg = <VOLTD_SCMI_STPMIC_BUCK1>;
-		voltd-supply = <&vddcore>;
-	};
-	scmi_vdd3v3_usb: voltd-vdd3v3-usb {
-		reg = <VOLTD_SCMI_STPMIC_LDO4>;
-		voltd-supply = <&vdd3v3_usb>;
-	};
-	scmi_vdd_flash: voltd-vdd-flash {
-		reg = <VOLTD_SCMI_STPMIC_LDO5>;
-		voltd-supply = <&vdd_flash>;
-	};
-	scmi_vdda_1v8: voltd-vdda-1v8 {
-		reg = <VOLTD_SCMI_STPMIC_LDO6>;
-		voltd-supply = <&vdda_1v8>;
-	};
-	scmi_v3v3: voltd-v3v3 {
-		reg = <VOLTD_SCMI_STPMIC_GPO1>;
-		voltd-supply = <&v3v3>;
+&scmi_regulator {
+	regulators {
+		regulator@5 {
+			reg = <VOLTD_SCMI_STPMIC_BUCK1>;
+			voltd-supply = <&vddcore>;
+		};
+
+		regulator@f {
+			reg = <VOLTD_SCMI_STPMIC_LDO4>;
+			voltd-supply = <&vdd3v3_usb>;
+		};
+
+		regulator@10 {
+			reg = <VOLTD_SCMI_STPMIC_LDO5>;
+			voltd-supply = <&vdd_flash>;
+		};
+
+		regulator@11 {
+			reg = <VOLTD_SCMI_STPMIC_LDO6>;
+			voltd-supply = <&vdda_1v8>;
+		};
+
+		regulator@15 {
+			reg = <VOLTD_SCMI_STPMIC_GPO1>;
+			voltd-supply = <&v3v3>;
+		};
 	};
 };
 

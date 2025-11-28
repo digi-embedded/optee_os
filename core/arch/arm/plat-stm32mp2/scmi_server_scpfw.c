@@ -13,6 +13,7 @@
 #include <kernel/dt.h>
 #include <kernel/dt_driver.h>
 #include <kernel/notif.h>
+#include <kernel/pm.h>
 #include <libfdt.h>
 #include <mm/core_memprot.h>
 #include <mm/core_mmu.h>
@@ -24,6 +25,8 @@
 #include <tee_api_types.h>
 #include <tee_api_defines.h>
 #include <tee/cache.h>
+
+#define SCMI_SHMEM_SIZE 128
 
 /*
  * struct optee_scmi_server - Data of scmi_server_scpfw
@@ -48,6 +51,7 @@ struct optee_scmi_server {
  * @event_waiting: an event from mailbox is waiting to be handle
  * @mailbox_notif: data for threaded execution
  * @shm: shared memory information
+ * @shm_backup: shared memory backup during suspend
  * @exposed_clock: data for clocks exposed thru SCMI
  * @protocol_list: list of optee_scmi_server_protocol
  * @link: link for optee_scmi_server:agent_list
@@ -61,6 +65,7 @@ struct optee_scmi_server_agent {
 	bool event_waiting;
 	struct notif_driver mailbox_notif;
 	struct shared_mem shm;
+	uint8_t *shm_backup;
 
 	SIMPLEQ_HEAD(protocol_list_head, optee_scmi_server_protocol)
 		protocol_list;
@@ -87,14 +92,14 @@ struct optee_scmi_server_protocol {
 /* scmi_agent_configuration API */
 static struct scpfw_config scpfw_cfg;
 
-static void scmi_scpfw_free_agent(struct scpfw_agent_config agent_cfg)
+static void scmi_scpfw_free_agent(struct scpfw_agent_config *agent_cfg)
 {
 	unsigned int j = 0;
 	unsigned int k = 0;
 
-	for (j = 0; j < agent_cfg.channel_count; j++) {
+	for (j = 0; j < agent_cfg->channel_count; j++) {
 		struct scpfw_channel_config *channel_cfg =
-			agent_cfg.channel_config + j;
+			agent_cfg->channel_config + j;
 
 		for (k = 0; k < channel_cfg->perfd_count; k++) {
 			struct scmi_perfd *perfd = channel_cfg->perfd + k;
@@ -109,7 +114,7 @@ static void scmi_scpfw_free_agent(struct scpfw_agent_config agent_cfg)
 		free(channel_cfg->reset);
 		free(channel_cfg->clock);
 	}
-	free(agent_cfg.channel_config);
+	free(agent_cfg->channel_config);
 }
 
 struct scpfw_config *scmi_scpfw_get_configuration(void)
@@ -117,6 +122,7 @@ struct scpfw_config *scmi_scpfw_get_configuration(void)
 	struct scpfw_agent_config *old_agent_config = scpfw_cfg.agent_config;
 
 	assert(scpfw_cfg.agent_count >= 1);
+	assert(!old_agent_config[0].channel_count);
 
 	/*
 	 * Do not expose agent_config[0] as it is empty
@@ -129,7 +135,6 @@ struct scpfw_config *scmi_scpfw_get_configuration(void)
 	memcpy(scpfw_cfg.agent_config, old_agent_config + 1,
 	       sizeof(*scpfw_cfg.agent_config) * scpfw_cfg.agent_count);
 
-	scmi_scpfw_free_agent(old_agent_config[0]);
 	free(old_agent_config);
 
 	return &scpfw_cfg;
@@ -140,7 +145,7 @@ void scmi_scpfw_release_configuration(void)
 	unsigned int i = 0;
 
 	for (i = 0; i < scpfw_cfg.agent_count; i++)
-		scmi_scpfw_free_agent(scpfw_cfg.agent_config[i]);
+		scmi_scpfw_free_agent(scpfw_cfg.agent_config + i);
 
 	free(scpfw_cfg.agent_config);
 }
@@ -181,6 +186,44 @@ static void mailbox_rcv_callback(void *cookie)
 
 	ctx->event_waiting = true;
 	notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
+}
+
+static TEE_Result
+optee_scmi_server_pm(enum pm_op op, uint32_t pm_hint,
+		     const struct pm_callback_handle *pm_handle)
+{
+	struct optee_scmi_server *ctx = pm_handle->handle;
+	struct optee_scmi_server_agent *agent_ctx = NULL;
+
+	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+		return TEE_SUCCESS;
+
+	switch (op) {
+	case PM_OP_SUSPEND:
+		SIMPLEQ_FOREACH(agent_ctx, &ctx->agent_list, link) {
+			if (agent_ctx->shm.size != 0) {
+				uint8_t *shm = (uint8_t *)agent_ctx->shm.va;
+
+				memcpy(agent_ctx->shm_backup, shm,
+				       SCMI_SHMEM_SIZE);
+			}
+		}
+		break;
+	case PM_OP_RESUME:
+		SIMPLEQ_FOREACH(agent_ctx, &ctx->agent_list, link) {
+			if (agent_ctx->shm.size != 0) {
+				uint8_t *shm = (uint8_t *)agent_ctx->shm.va;
+
+				memcpy(shm, agent_ctx->shm_backup,
+				       SCMI_SHMEM_SIZE);
+			}
+		}
+		break;
+	default:
+		return TEE_ERROR_BAD_PARAMETERS;
+	}
+
+	return TEE_SUCCESS;
 }
 
 static TEE_Result optee_scmi_server_shm_map(struct shared_mem *shm)
@@ -229,11 +272,11 @@ static TEE_Result optee_scmi_server_probe_agent(const void *fdt, int agent_node,
 					    &agent_ctx->mbox_chan);
 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
 			EMSG("%s Mailbox request an impossible probe defer",
-			     protocol_ctx->dt_name);
+			     agent_ctx->dt_name);
 			panic();
 		} else if (res) {
 			EMSG("%s Failed to register mailbox channel",
-			     protocol_ctx->dt_name);
+			     agent_ctx->dt_name);
 			panic();
 		}
 	} else if (!fdt_node_check_compatible(fdt, agent_node,
@@ -259,11 +302,18 @@ static TEE_Result optee_scmi_server_probe_agent(const void *fdt, int agent_node,
 		agent_ctx->shm.pa = fdt_reg_base_address(fdt, shmem_node);
 		if (shmem_node >= 0 &&
 		    (agent_ctx->shm.pa == DT_INFO_INVALID_REG ||
-		     agent_ctx->shm.size == DT_INFO_INVALID_REG_SIZE)) {
+		     agent_ctx->shm.size == DT_INFO_INVALID_REG_SIZE ||
+		     agent_ctx->shm.size < SCMI_SHMEM_SIZE)) {
 			panic();
 		}
 
 		optee_scmi_server_shm_map(&agent_ctx->shm);
+
+		agent_ctx->shm.size = SCMI_SHMEM_SIZE;
+		agent_ctx->shm_backup = calloc(SCMI_SHMEM_SIZE,
+					       sizeof(*agent_ctx->shm_backup));
+		if (!agent_ctx->shm_backup)
+			panic();
 	}
 
 	fdt_for_each_subnode(protocol_node, fdt, agent_node) {
@@ -359,7 +409,10 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
 		struct scpfw_agent_config *agent_cfg =
 			scpfw_cfg.agent_config + agent_ctx->agent_id;
 
-		agent_cfg->name = agent_ctx->dt_name;
+		agent_cfg->name = (const char *)strdup(agent_ctx->dt_name);
+		if (!agent_cfg->name)
+			goto fail_scpfw_cfg;
+
 		agent_cfg->agent_id = agent_ctx->agent_id;
 
 		if (agent_ctx->mbox_chan) {
@@ -450,13 +503,18 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
 				break;
 			}
 		}
-		i++;
 	}
+
+	register_pm_core_service_cb(optee_scmi_server_pm, ctx,
+				    "scmi-server-scpfw");
 
 	return TEE_SUCCESS;
 
 fail_scpfw_cfg:
 	scmi_scpfw_release_configuration();
+
+	for (i = 0; i < scpfw_cfg.agent_count; i++)
+		free((void *)scpfw_cfg.agent_config[i].name);
 
 fail_agent:
 	while (!SIMPLEQ_EMPTY(&ctx->agent_list)) {

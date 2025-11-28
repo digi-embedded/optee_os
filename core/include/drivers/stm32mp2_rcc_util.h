@@ -23,6 +23,14 @@ unsigned long clk_stm32_clock_frequency_calculator(uint32_t ckintsel);
 unsigned long clk_stm32_read_hsi_frequency(void);
 unsigned long clk_stm32_read_msi_frequency(void);
 
+#if defined(CFG_STM32MP2_CLK_CAL)
 TEE_Result clk_stm32_init_calib(const void *fdt, int node);
+#else /* defined(CFG_STM32MP2_CLK_CAL) */
+static inline TEE_Result clk_stm32_init_calib(const void *fdt __unused,
+					      int node __unused)
+{
+	return TEE_SUCCESS;
+}
+#endif /* defined(CFG_STM32MP2_CLK_CAL) */
 
 #endif /*__DRIVERS_STM32MP2_RCC_UTIL_H__*/

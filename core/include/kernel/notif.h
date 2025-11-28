@@ -75,7 +75,8 @@ enum notif_event {
  * struct notif_driver - Registration of driver notification
  * @atomic_cb:	 A callback called in an atomic context from
  *		 notif_deliver_atomic_event(). Currently only used to
- *		 signal @NOTIF_EVENT_STARTED.
+ *		 signal @NOTIF_EVENT_STARTED. Return true to ask
+ *		 bottom half thread and false otherwise.
  * @yielding_cb: A callback called in a yielding context from
  *		 notif_deliver_event(). Currently only used to signal
  *		 @NOTIF_EVENT_DO_BOTTOM_HALF and @NOTIF_EVENT_STOPPED.
@@ -89,7 +90,7 @@ enum notif_event {
  * using mutexes and condition variables.
  */
 struct notif_driver {
-	void (*atomic_cb)(struct notif_driver *ndrv, enum notif_event ev);
+	bool (*atomic_cb)(struct notif_driver *ndrv, enum notif_event ev);
 	void (*yielding_cb)(struct notif_driver *ndrv, enum notif_event ev);
 	SLIST_ENTRY(notif_driver) link;
 };

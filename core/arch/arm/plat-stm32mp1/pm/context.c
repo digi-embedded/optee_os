@@ -26,8 +26,8 @@
 #include <platform_config.h>
 #include <stdlib.h>
 #include <stm32_util.h>
-#include <stm32mp_pm.h>
 #include <string.h>
+#include <zlib.h>
 
 #include "context.h"
 #include "power.h"
@@ -35,45 +35,42 @@
 #define TRAINING_AREA_SIZE		64
 
 /*
- * STANDBY_CONTEXT_MAGIC0:
- * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer.
+ * STANDBY_CONTEXT_MAGIC  - V1 and V2 are not supported by OP-TEE
  *
- * STANDBY_CONTEXT_MAGIC1:
- * Context provides MAGIC0 content and PLL1 dual OPP settings structure
- * (86 bytes).
+ * STANDBY_CONTEXT_MAGIC V3
+ * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer,
+ * PLL1 dual OPP settings structure (86 bytes) and low power entry point,
+ * BL2 code start, end and BL2_END (102 bytes). And, only for STM32MP13,
+ * add MCE master key (16 bytes)
  *
- * STANDBY_CONTEXT_MAGIC2:
- * Context provides MAGIC1 content, low power entry point, BL2 code start, end
- * and BL2_END (102 bytes). And, only for STM32MP13, add MCE master key
- * (16 bytes).
+ * STANDBY_CONTEXT_MAGIC V4
+ * Context v4 provides the v3 content + size and CRC.
  */
-#define STANDBY_CONTEXT_MAGIC0		(0x0001 << 16)
-#define STANDBY_CONTEXT_MAGIC1		(0x0002 << 16)
-#define STANDBY_CONTEXT_MAGIC2		(0x0003 << 16)
 
-#if CFG_STM32MP1_PM_CONTEXT_VERSION == 1
-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC0 | TRAINING_AREA_SIZE)
-#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 2
-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC1 | TRAINING_AREA_SIZE)
-#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 3
-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC2 | TRAINING_AREA_SIZE)
-#else
+#if CFG_STM32MP1_PM_CONTEXT_VERSION < 3 || CFG_STM32MP1_PM_CONTEXT_VERSION > 4
 #error Invalid value for CFG_STM32MP1_PM_CONTEXT_VERSION
 #endif
 
-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
-#if (PLAT_MAX_OPP_NB != 2) || (PLAT_MAX_PLLCFG_NB != 6)
-#error STANDBY_CONTEXT_MAGIC does not support expected PLL1 settings
-#endif
+#define STANDBY_CONTEXT_MAGIC(version)	((version) << 16 |  TRAINING_AREA_SIZE)
+#define MAGIC_VERSION(magic)		((magic) >> 16)
+#define MAGIC_AREA_SIZE(magic)		((magic) & GENMASK_32(15, 0))
 
 /* pll_settings structure size definitions (reference to clock driver) */
 #define PLL1_SETTINGS_SIZE		(((PLAT_MAX_OPP_NB * \
 					  (PLAT_MAX_PLLCFG_NB + 3)) + 1) * \
 					 sizeof(uint32_t))
-#endif
 
-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3 && defined(CFG_STM32MP13)
+#if defined(CFG_STM32MP13)
 #define MCE_KEY_SIZE_IN_BYTES		16
+
+/* IP configuration */
+#define MCE_IP_MAX_REGION_NB		1
+
+struct stm32_mce_region_s {
+	uint32_t encrypt_mode;	/* Specifies the region encryption mode */
+	uint32_t start_address;	/* Specifies the region start address */
+	uint32_t end_address;	/* Specifies the region end address */
+};
 #endif
 
 /*
@@ -112,25 +109,31 @@ static struct pm_clocks pm_clocks;
  * @magic: magic value read by early boot stage for consistency
  * @zq0cr0_zdata: DDRPHY configuration to be restored.
  * @ddr_training_backup: DDR area saved at suspend and backed up at resume
+ * @size: struct size, used for CRC32 check
+ * @crc_32: CRC32 of this struct, computed on @size with @crc_32 = 0
  */
 struct pm_mailbox {
 	uint32_t magic;
 	uint32_t core0_resume_ep;
 	uint32_t zq0cr0_zdata;
 	uint8_t ddr_training_backup[TRAINING_AREA_SIZE];
-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
 	uint8_t pll1_settings[PLL1_SETTINGS_SIZE];
-#endif
-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3
 	uint32_t low_power_ep;
 	uint32_t bl2_code_base;
 	uint32_t bl2_code_end;
 	uint32_t bl2_end;
 #ifdef CFG_STM32MP13
 	uint8_t mce_mkey[MCE_KEY_SIZE_IN_BYTES];
+	struct stm32_mce_region_s mce_regions[MCE_IP_MAX_REGION_NB];
 #endif
-#endif
+/* VERSION 4 */
+	uint32_t size;
+	uint32_t crc_32;
 };
+
+uint32_t optee_magic;
+
+static tee_mm_entry_t *teeram_bkp_mm;
 
 /*
  * BKPSRAM contains OP-TEE resume instruction sequence which restores
@@ -153,37 +156,6 @@ static struct pm_mailbox *get_pm_mailbox(void)
 	return (struct pm_mailbox *)mailbox_base;
 }
 
-#if TRACE_LEVEL >= TRACE_DEBUG
-static void __maybe_unused dump_context(void)
-{
-	struct pm_mailbox *mailbox = get_pm_mailbox();
-	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
-
-	clk_enable(pm_clocks.rtcapb);
-
-	DMSG("Backup registers: address 0x%" PRIx32 ", magic 0x%" PRIx32,
-	     *(uint32_t *)stm32mp_bkpreg(BCKR_CORE1_BRANCH_ADDRESS),
-	     *(uint32_t *)stm32mp_bkpreg(BCKR_CORE1_MAGIC_NUMBER));
-
-	clk_disable(pm_clocks.rtcapb);
-
-	clk_enable(pm_clocks.bkpsram);
-
-	DMSG("BKPSRAM mailbox:  0x%" PRIx32 ", zd 0x%" PRIx32 ", ep 0x%" PRIx32,
-	     mailbox->magic, mailbox->zq0cr0_zdata,
-	     mailbox->core0_resume_ep);
-
-	DMSG("BKPSRAM context:  teeram backup @%" PRIx32 ", resume @0x%" PRIx32,
-	     ctx->teeram_bkp_pa, ctx->resume_pa);
-
-	clk_disable(pm_clocks.bkpsram);
-}
-#else
-static void __maybe_unused dump_context(void)
-{
-}
-#endif
-
 /*
  * Save and restore functions
  */
@@ -202,9 +174,9 @@ static void save_time(void)
 		panic();
 }
 
-#if TRACE_LEVEL >= TRACE_DEBUG
-static void __maybe_unused print_ccm_decryption_duration(void)
+static void print_ccm_decryption_duration(void)
 {
+#if defined(CFG_STM32MP1_OPTEE_IN_SYSRAM) && TRACE_LEVEL >= TRACE_DEBUG
 	vaddr_t stgen = stm32mp_stgen_base();
 	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
 
@@ -215,12 +187,8 @@ static void __maybe_unused print_ccm_decryption_duration(void)
 	     io_read32(stgen + CNTFID_OFFSET));
 
 	clk_disable(pm_clocks.bkpsram);
-}
-#else
-static void __maybe_unused print_ccm_decryption_duration(void)
-{
-}
 #endif
+}
 
 static void restore_time(void)
 {
@@ -247,54 +215,36 @@ static void restore_time(void)
 	/* Balance clock enable(RTC) at save_time() */
 	clk_disable(pm_clocks.rtc);
 
-#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
 	print_ccm_decryption_duration();
-#endif
-}
-
-static bool __maybe_unused pm_cb_is_valid(void (*cb)(enum pm_op op, void *hdl),
-					  void *hdl)
-{
-	void *cb_voidp = (void *)(vaddr_t)cb;
-	paddr_t cb_phy = virt_to_phys(cb_voidp);
-	paddr_t hdl_phy = virt_to_phys(hdl);
-	bool valid = false;
-
-	valid = (phys_to_virt(cb_phy, MEM_AREA_TEE_RAM_RX, 1) == cb_voidp) &&
-		((phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RX, 1) == hdl) ||
-		 (phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RO, 1) == hdl) ||
-		 (phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RW, 1) == hdl));
-
-	if (!valid)
-		EMSG("pm_cb mandates unpaged arguments %p %p", cb_voidp, hdl);
-
-	return valid;
-}
-
-uintptr_t stm32mp_pm_retram_resume_ep(void)
-{
-	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
-
-	return (uintptr_t)&ctx->resume_sequence;
 }
 
 /* Clear the content of the PM mailbox */
 void stm32mp_pm_wipe_context(void)
 {
 	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
-	struct pm_mailbox __maybe_unused *mailbox = get_pm_mailbox();
+	struct pm_mailbox *mailbox = get_pm_mailbox();
+	unsigned int version = 0;
 
 	clk_enable(pm_clocks.bkpsram);
 
 	memset(ctx, 0xa5, sizeof(*ctx));
+
+	/* BL2 set the supported MAGIC in mailbox since V3 */
+	version = MIN(MAGIC_VERSION(mailbox->magic),
+		      (uint32_t)CFG_STM32MP1_PM_CONTEXT_VERSION);
+
+	/* When version is not provided for old TF-A BL2 OP-TEE assumed V3 */
+	if (version == 0)
+		version = 3;
+
+	optee_magic = STANDBY_CONTEXT_MAGIC(version);
+
 #ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
 	memset(mailbox, 0xa5, sizeof(*mailbox));
 #endif
 
 	clk_disable(pm_clocks.bkpsram);
 }
-
-static tee_mm_entry_t *teeram_bkp_mm;
 
 static void init_retram_resume_resources(void)
 {
@@ -346,9 +296,8 @@ __maybe_unused static void save_ddr_training_area(void)
  * structure must then be saved before going to STANDBY in the PM mailbox
  * shared with the warm boot boot stage.
  */
-#if (CFG_STM32MP1_PM_CONTEXT_VERSION >= 2) && \
-    defined(CFG_STM32MP1_OPTEE_IN_SYSRAM)
-__maybe_unused static void save_pll1_settings(void)
+#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+static void save_pll1_settings(void)
 {
 	struct pm_mailbox *mailbox = get_pm_mailbox();
 	size_t size = sizeof(mailbox->pll1_settings);
@@ -356,7 +305,7 @@ __maybe_unused static void save_pll1_settings(void)
 
 	stm32mp1_clk_lp_save_opp_pll1_settings(data, size);
 }
-#endif
+#endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
 
 static void load_earlyboot_pm_mailbox(void)
 {
@@ -372,10 +321,11 @@ static void load_earlyboot_pm_mailbox(void)
 
 	mailbox->zq0cr0_zdata = get_ddrphy_calibration();
 
-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
 	save_pll1_settings();
-#endif
 #endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+
+	if (MAGIC_VERSION(optee_magic) >= 4)
+		mailbox->size = sizeof(*mailbox);
 
 	save_ddr_training_area();
 }
@@ -483,21 +433,35 @@ static void enable_pm_mailbox(unsigned int suspend)
 
 	if (suspend) {
 		magic = BOOT_API_A7_CORE0_MAGIC_NUMBER;
-		mailbox->magic = STANDBY_CONTEXT_MAGIC;
+		mailbox->magic = optee_magic;
 
 #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
 		hint = virt_to_phys(stm32mp_sysram_resume);
 #else
 		hint = virt_to_phys(&get_retram_resume_ctx()->resume_sequence);
 #endif
+		mailbox->core0_resume_ep = hint;
+
+		if (MAGIC_VERSION(optee_magic) >= 4) {
+			mailbox->crc_32 = 0;
+#ifdef CFG_ZLIB
+			/* compute CRC32 on struct size with crc_32 = 0 */
+			mailbox->crc_32 = crc32(0, (const Bytef *)mailbox,
+						mailbox->size);
+#endif
+		}
+
+		DMSG("%s(crc=%x, size=%u, magic=%x)\n", __func__,
+		     mailbox->crc_32, mailbox->size, mailbox->magic);
 	} else {
 		mailbox->magic = 0;
+		mailbox->core0_resume_ep = 0;
+		if (MAGIC_VERSION(optee_magic) >= 4)
+			mailbox->crc_32 = 0;
 	}
 
 	io_write32(stm32mp_bkpreg(BCKR_CORE1_MAGIC_NUMBER), magic);
 	io_write32(stm32mp_bkpreg(BCKR_CORE1_BRANCH_ADDRESS), hint);
-
-	mailbox->core0_resume_ep = hint;
 }
 
 static void gate_pm_context_clocks(bool enable)

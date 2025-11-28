@@ -20,7 +20,6 @@
 			opp-hz = /bits/ 64 <900000000>;
 			opp-microvolt = <900000>;
 			opp-supported-hw = <0x2>;
-			st,opp-default;
 		};
 	};
 };
@@ -29,7 +28,7 @@
 	gpu: gpu@48280000 {
 		compatible = "vivante,gc";
 		gpu-supply = <&vddgpu>;
-		clocks = <&rcc CK_BUS_GPU>;
+		clocks = <&rcc CK_KER_GPU>;
 		operating-points-v2 = <&gpu_opp_table>;
 		access-controllers = <&rifsc STM32MP25_RIFSC_GPU_ID>;
 	};

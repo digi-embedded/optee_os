@@ -46,7 +46,7 @@ static inline uint64_t timeout_init_us(uint32_t us)
 
 static inline bool timeout_elapsed(uint64_t expire)
 {
-	return barrier_read_counter_timer() > expire;
+	return barrier_read_counter_timer() >= expire;
 }
 
 #endif

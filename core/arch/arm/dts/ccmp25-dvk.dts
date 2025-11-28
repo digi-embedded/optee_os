@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /*
  * Copyright (C) STMicroelectronics 2021 - All Rights Reserved
- * Copyright (C) 2024, Digi International Inc - All Rights Reserved
+ * Copyright (C) 2024, 2025, Digi International Inc - All Rights Reserved
  */
 
 /dts-v1/;
@@ -18,6 +18,7 @@
 #include "ccmp25-dvk-resmem.dtsi"
 #include "ccmp25-dvk-rif.dtsi"
 #include "stm32mp25-pinctrl.dtsi"
+#include "stm32mp25-st-scmi-cfg.dtsi"
 #include "stm32mp25xxai-pinctrl.dtsi"
 
 / {
@@ -86,10 +87,10 @@
 	pmic2: stpmic2@33 {
 		compatible = "st,stpmic2";
 		reg = <0x33>;
-		st,wakeup-pin-number = <1>;
+		interrupts-extended = <&exti1 52 IRQ_TYPE_EDGE_FALLING>;
+		wakeup-source;
 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
 		st,notif-it-id = <0 1>;
-		wakeup-parent = <&pwr>;
 		status = "okay";
 
 		regulators {
@@ -146,6 +147,13 @@
 				regulator-min-microvolt = <800000>;
 				regulator-max-microvolt = <900000>;
 				regulator-over-current-protection;
+
+				standby {
+					regulator-off-in-suspend;
+				};
+				off {
+					regulator-off-in-suspend;
+				};
 			};
 			vddio_pmic: buck4 {
 				regulator-name = "vddio_pmic";
@@ -286,7 +294,6 @@
 				regulator-name = "vdd3v3_usb";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
-				regulator-always-on;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-enable;
@@ -451,7 +458,6 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		vdd33ucpd-supply = <&vdd3v3_usb>;
-		regulator-always-on;
 	};
 
 	vdda18adc: vdda18adc {
@@ -512,6 +518,13 @@
 				st,pll = <&pll1_cfg_1200Mhz>;
 			};
 		};
+		st,ck_gpu {
+			/* STM32MP25xC 800 MHz, up to 133 Mtriangle/s or 800 Mpixel/s */
+			cfg_1 {
+				hz = <800000000>;
+				st,pll = <&pll3_cfg_800Mhz>;
+			};
+		};
 	};
 };
 
@@ -531,44 +544,56 @@
 	status = "okay";
 };
 
-&scmi_regu {
-	voltd-vddcore {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
-		voltd-supply = <&vddcore>;
-	};
-	voltd-v1v8 {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
-		voltd-supply = <&v1v8>;
-	};
-	voltd-v3v3 {
-		reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
-		voltd-supply = <&v3v3>;
-	};
-	voltd-vdd-emmc {
-		reg = <VOLTD_SCMI_STPMIC2_LDO2>;
-		voltd-supply = <&vdd_emmc>;
-	};
-	voltd-vdd3v3-usb {
-		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
-		voltd-supply = <&vdd3v3_usb>;
-	};
-	voltd-ldo6 {
-		reg = <VOLTD_SCMI_STPMIC2_LDO6>;
-		voltd-supply = <&ldo6>;
-	};
-	voltd-ldo7 {
-		reg = <VOLTD_SCMI_STPMIC2_LDO7>;
-		voltd-supply = <&ldo7>;
-	};
-	voltd-v1v8-rf {
-		reg = <VOLTD_SCMI_STPMIC2_LDO8>;
-		voltd-supply = <&ldo8_1v8_rf>;
+&scmi_regulator {
+	regulators {
+		regulator@9 {
+			reg = <VOLTD_SCMI_VREFBUF>;
+			voltd-supply = <&vrefbuf>;
+		};
+		regulator@b {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
+			voltd-supply = <&vddcore>;
+		};
+
+		regulator@e {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
+			voltd-supply = <&v1v8>;
+		};
+
+		regulator@10 {
+			reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
+			voltd-supply = <&v3v3>;
+		};
+
+		regulator@12 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO2>;
+			voltd-supply = <&vdd_emmc>;
+		};
+
+		regulator@14 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO4>;
+			voltd-supply = <&vdd3v3_usb>;
+		};
+
+		regulator@16 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO6>;
+			voltd-supply = <&ldo6>;
+		};
+
+		regulator@17 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO7>;
+			voltd-supply = <&ldo7>;
+		};
+
+		regulator@18 {
+			reg = <VOLTD_SCMI_STPMIC2_LDO8>;
+			voltd-supply = <&ldo8_1v8_rf>;
+		};
 	};
 };
 
 &tamp {
 	wakeup-source;
-	wakeup-parent = <&exti2>;
 	st,tamp-passive-precharge = <2>;
 	st,tamp-passive-nb-sample = <4>;
 	st,tamp-passive-sample-clk-div = <16384>;
@@ -586,5 +611,10 @@
 &usart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&usart2_pins_a>;
+	status = "okay";
+};
+
+/* Enable VREFBUF ADC reference voltage */
+&vrefbuf{
 	status = "okay";
 };

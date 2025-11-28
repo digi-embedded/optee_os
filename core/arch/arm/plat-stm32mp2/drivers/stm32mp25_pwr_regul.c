@@ -8,6 +8,7 @@
 #include <drivers/regulator.h>
 #include <drivers/stm32mp25_pwr.h>
 #include <drivers/stm32_rif.h>
+#include <dt-bindings/soc/stm32mp25-rifsc.h>
 #include <io.h>
 #include <kernel/delay.h>
 #include <kernel/dt.h>
@@ -16,6 +17,7 @@
 #include <kernel/thread.h>
 #include <libfdt.h>
 #include <stm32_sysconf.h>
+#include <stm32mp_pm.h>
 #include <trace.h>
 
 #define PWR_CR1			U(0x00)
@@ -69,6 +71,8 @@
 
 #define IO_VOLTAGE_THRESHOLD_UV	2700000
 
+#define IOCOMP_CODE_MAX		U(2)
+
 /*
  * struct pwr_regu - PWR regulator instance
  *
@@ -81,7 +85,8 @@
  * @suspend_uv: Supply voltage level at PM suspend time to be restored at resume
  * @suspend_state: Supply state at PM suspend time to be restored at resume
  * @is_an_iod: True if regulator relates to an IO domain, else false
- * @keep_monitor_on: True if regulator required monitoring state (see refman)
+ * @keep_monitor_on: Never turn of the voltage monitor
+ * @has_clamp: Handle clamp workaround
  */
 struct pwr_regu {
 	uint32_t enable_reg;
@@ -98,12 +103,24 @@ struct pwr_regu {
 	 * and the IOs have IO compensation cell
 	 */
 	bool is_an_iod;
+
 	bool keep_monitor_on;
+	/*
+	 * Has_clamp: The VDDA regulator implements a workaround
+	 * to reduce power consumption that occurs when the regulator
+	 * is disabled but its supply is still present.
+	 * In this case, activating the monitor also activates a clamping
+	 * mechanism.
+	 */
+	bool has_clamp;
 	/*
 	 * rifsc_filtering_id is used to disable filtering when
 	 * accessing to the register
 	 */
 	uint8_t rifsc_filtering_id;
+	/* IO compensation codes */
+	bool iocomp_fixed;
+	uint32_t iocomp_code[IOCOMP_CODE_MAX];
 };
 
 static TEE_Result pwr_enable_reg(struct pwr_regu *pwr_regu)
@@ -143,8 +160,11 @@ static TEE_Result pwr_enable_reg(struct pwr_regu *pwr_regu)
 
 	io_setbits32(reg, pwr_regu->valid_mask);
 
-	/* Do not keep the voltage monitor enabled except for GPU */
-	if (!pwr_regu->keep_monitor_on)
+	/*
+	 * Disable voltage monitor to reduce consumption.
+	 * Not for GPU or for clamp workaround
+	 */
+	if (!(pwr_regu->keep_monitor_on || pwr_regu->has_clamp))
 		io_clrbits32(reg, pwr_regu->enable_mask);
 
 	if (cid_enabled)
@@ -169,7 +189,13 @@ static void pwr_disable_reg(struct pwr_regu *pwr_regu)
 
 		/* Make sure the previous operations are visible */
 		dsb();
-		io_clrbits32(reg, pwr_regu->enable_mask | pwr_regu->valid_mask);
+
+		io_clrbits32(reg, pwr_regu->valid_mask);
+
+		if (pwr_regu->has_clamp)
+			io_setbits32(reg, pwr_regu->enable_mask);
+		else
+			io_clrbits32(reg, pwr_regu->enable_mask);
 	}
 
 	if (cid_enabled)
@@ -190,16 +216,16 @@ static TEE_Result pwr_set_state(struct regulator *regulator, bool enable)
 		if (res)
 			return res;
 
-		if (pwr_regu->is_an_iod) {
-			res = stm32mp25_syscfg_enable_io_compensation(iod_idx);
+		if (pwr_regu->is_an_iod && !pwr_regu->iocomp_fixed) {
+			res = stm32mp25_syscfg_enable_iocomp(iod_idx);
 			if (res) {
 				pwr_disable_reg(pwr_regu);
 				return res;
 			}
 		}
 	} else {
-		if (pwr_regu->is_an_iod) {
-			res = stm32mp25_syscfg_disable_io_compensation(iod_idx);
+		if (pwr_regu->is_an_iod && !pwr_regu->iocomp_fixed) {
+			res = stm32mp25_syscfg_disable_iocomp(iod_idx);
 			if (res)
 				return res;
 		}
@@ -218,8 +244,7 @@ static TEE_Result pwr_get_state(struct regulator *regulator, bool *enabled)
 	FMSG("%s: get state", regulator_name(regulator));
 
 	if (pwr_regu->enable_mask)
-		*enabled = io_read32(pwr_reg) & (pwr_regu->enable_mask |
-						 pwr_regu->valid_mask);
+		*enabled = io_read32(pwr_reg) & pwr_regu->valid_mask;
 	else
 		*enabled = true;
 
@@ -292,8 +317,6 @@ static TEE_Result pwr_set_voltage(struct regulator *regulator, int level_uv)
 		     regulator_name(regulator), result);
 		/* Continue to restore IOs setting for current voltage */
 		level_uv = regulator_get_voltage(regulator->supply);
-		if (res)
-			return res;
 	}
 
 	if (level_uv < IO_VOLTAGE_THRESHOLD_UV) {
@@ -328,14 +351,19 @@ static TEE_Result pwr_supported_voltages(struct regulator *regulator,
  * To protect the IOs, disable low voltage mode before entering suspend
  * resume restore the previous configuration.
  */
-static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint __unused,
+static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint,
 			      const struct pm_callback_handle *hdl)
 {
 	struct regulator *regulator = hdl->handle;
 	struct pwr_regu *pwr_regu = regulator->priv;
 	TEE_Result res = TEE_ERROR_GENERIC;
+	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
 
 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
+
+	/* Skip as regulators don't change for Stop1 modes */
+	if (pwrlvl < PM_D1_LPLV_LEVEL)
+		return TEE_SUCCESS;
 
 	if (op == PM_OP_SUSPEND) {
 		FMSG("%s: suspend", regulator_name(regulator));
@@ -356,14 +384,23 @@ static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint __unused,
 			if (res)
 				return res;
 
-			res = stm32mp25_syscfg_disable_io_compensation(iod_idx);
-			if (res)
-				return res;
+			if (!pwr_regu->iocomp_fixed) {
+				res = stm32mp25_syscfg_disable_iocomp(iod_idx);
+				if (res)
+					return res;
+			}
 		}
 	} else {
 		FMSG("%s: resume", regulator_name(regulator));
 
 		if (pwr_regu->is_an_iod) {
+			if (pwr_regu->iocomp_fixed) {
+				stm32mp25_syscfg_fixed_iocomp(
+					pwr_regu->comp_idx,
+					pwr_regu->iocomp_code[0],
+					pwr_regu->iocomp_code[1]);
+			}
+
 			res = pwr_set_voltage(regulator, pwr_regu->suspend_uv);
 			if (res)
 				return res;
@@ -389,6 +426,12 @@ static TEE_Result pwr_supplied_init(struct regulator *regulator,
 		TEE_Result res = TEE_ERROR_GENERIC;
 		int level_uv = 0;
 
+		if (pwr_regu->iocomp_fixed) {
+			stm32mp25_syscfg_fixed_iocomp(pwr_regu->comp_idx,
+						      pwr_regu->iocomp_code[0],
+						      pwr_regu->iocomp_code[1]);
+		}
+
 		res = pwr_get_voltage(regulator, &level_uv);
 		if (res)
 			return res;
@@ -398,6 +441,12 @@ static TEE_Result pwr_supplied_init(struct regulator *regulator,
 			if (res)
 				return res;
 		}
+	}
+
+	if (pwr_regu->has_clamp) {
+		uintptr_t reg = stm32_pwr_base() + pwr_regu->enable_reg;
+
+		io_setbits32(reg, pwr_regu->enable_mask);
 	}
 
 	register_pm_driver_cb(pwr_regu_pm, regulator, "pwr-regu");
@@ -498,6 +547,9 @@ static struct pwr_regu pwr_regulators[PWR_REGU_COUNT] = {
 		.enable_mask = PWR_CR1_AVMEN,
 		.ready_mask = PWR_CR1_ARDY,
 		.valid_mask = PWR_CR1_ASV,
+#if defined(CFG_STM32MP21)
+		.has_clamp = true,
+#endif
 	 },
 #ifndef CFG_STM32MP21
 	 [REGU_GPU] = {
@@ -527,7 +579,7 @@ static struct pwr_regu pwr_regulators[PWR_REGU_COUNT] = {
 		.regulator = pwr_regu_device + (_id),	\
 	}
 
-/* (FIXME: not needed) Preallocated regulator devices */
+/* Preallocated regulator devices */
 static struct regulator pwr_regu_device[PWR_REGU_COUNT];
 
 /* Not const to allow probe to reassign ops if device is a fixed_iod */
@@ -555,6 +607,7 @@ static TEE_Result pwr_regulator_probe(const void *fdt, int node,
 	TEE_Result res = TEE_ERROR_GENERIC;
 	const struct regu_dt_desc *desc = NULL;
 	const char *regu_name = NULL;
+	struct pwr_regu *pwr_regu = NULL;
 	size_t i = 0;
 
 	regu_name = fdt_get_name(fdt, node, NULL);
@@ -571,6 +624,20 @@ static TEE_Result pwr_regulator_probe(const void *fdt, int node,
 	if (!desc) {
 		EMSG("No regulator found for node %s", regu_name);
 		return TEE_ERROR_GENERIC;
+	}
+
+	pwr_regu = desc->priv;
+	if (pwr_regu->is_an_iod) {
+		int ret;
+
+		ret = fdt_read_uint32_array(fdt, node, "st,iocomp",
+					    pwr_regu->iocomp_code,
+					    IOCOMP_CODE_MAX);
+		if (ret && ret != -FDT_ERR_NOTFOUND)
+			return TEE_ERROR_BAD_PARAMETERS;
+
+		if (!ret)
+			pwr_regu->iocomp_fixed = true;
 	}
 
 	res = regulator_dt_register(fdt, node, node, desc);

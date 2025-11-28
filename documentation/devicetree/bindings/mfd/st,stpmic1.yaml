@@ -276,12 +276,6 @@ properties:
 
     additionalProperties: false
 
-  st,wakeup-pin-number:
-    description: Pin used as wake-up source when for MP13
-    $ref: /schemas/types.yaml#/definitions/uint32
-    minItems: 1
-    maxItems: 1
-
   st,pmic-it-id:
     description: PMIC interruptions id to forward to the non-secure world
       in the form of OPTEE notifications described by st,notif-it-id.
@@ -351,13 +345,11 @@ examples:
       pmic@33 {
         compatible = "st,stpmic1";
         reg = <0x33>;
-        interrupt-parent = <&gpioa>;
-        interrupts = <0 2>;
 
         interrupt-controller;
         #interrupt-cells = <2>;
 
-        st,wakeup-pin-number = <1>;
+        interrupts-extended = <&exti 55 IRQ_TYPE_EDGE_FALLING>;
         st,pmic-it-id = <IT_PONKEY_F IT_PONKEY_R>;
         st,notif-it-id = <0 2>;
 

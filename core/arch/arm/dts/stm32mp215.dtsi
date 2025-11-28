@@ -19,16 +19,12 @@
 		access-controller-names = "cmn";
 
 		l1l2 {
-			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L0L1_ID>;
+			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L1L2_ID>;
 			access-controller-names = "l1l2";
 		};
 		l3 {
-			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L2_ID>;
+			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L3_ID>;
 			access-controller-names = "l3";
-		};
-		rot {
-			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_ROT_ID>;
-			access-controller-names = "rot";
 		};
 	};
 };

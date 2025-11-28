@@ -58,6 +58,8 @@ struct itr_chip {
  * @raise_pi	Raise per-cpu interrupt or NULL if not applicable
  * @raise_sgi	Raise a SGI or NULL if not applicable to that controller
  * @set_affinity Set interrupt/cpu affinity or NULL if not applicable
+ * @set_wake	Enable/disable power-management wake-on of an interrupt or NULL
+ *		if not applicable
  *
  * Handlers @enable, @disable, @mask, @unmask and @add are mandated. Handlers
  * @mask and @unmask have unpaged memory contrainsts. See itr_chip_is_valid().
@@ -74,6 +76,7 @@ struct itr_ops {
 			  uint32_t cpu_mask);
 	void (*set_affinity)(struct itr_chip *chip, size_t it,
 		uint8_t cpu_mask);
+	void (*set_wake)(struct itr_chip *chip, size_t it, bool on);
 };
 
 /*
@@ -274,6 +277,15 @@ static inline bool interrupt_can_set_affinity(struct itr_chip *chip)
 }
 
 /*
+ * interrupt_can_set_wake() - Return whether controller embeds set_wake
+ * @chip	Interrupt controller
+ */
+static inline bool interrupt_can_set_wake(struct itr_chip *chip)
+{
+	return chip->ops->set_wake;
+}
+
+/*
  * interrupt_raise_pi() - Raise a peripheral interrupt of a controller
  * @chip	Interrupt controller
  * @itr_num	Interrupt number to raise
@@ -310,6 +322,19 @@ static inline void interrupt_set_affinity(struct itr_chip *chip, size_t itr_num,
 {
 	assert(interrupt_can_set_affinity(chip));
 	chip->ops->set_affinity(chip, itr_num, cpu_mask);
+}
+
+/*
+ * interrupt_set_wake() - Enable/disable power-management wake-on of interrupt
+ * @chip	Interrupt controller
+ * @itr_num	Interrupt number
+ * @on		A boolean for enable/disable
+ */
+static inline void interrupt_set_wake(struct itr_chip *chip, size_t itr_num,
+				      bool on)
+{
+	assert(interrupt_can_set_wake(chip));
+	chip->ops->set_wake(chip, itr_num, on);
 }
 
 /*
