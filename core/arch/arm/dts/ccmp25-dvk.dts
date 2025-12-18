@@ -337,8 +337,8 @@
 			};
 			ldo6: ldo6 {
 				regulator-name = "ldo6";
-				regulator-min-microvolt = <1500000>;
-				regulator-max-microvolt = <1500000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <4000000>;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-enable;
@@ -358,8 +358,8 @@
 			};
 			ldo7: ldo7 {
 				regulator-name = "ldo7";
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <4000000>;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-enable;
@@ -379,8 +379,8 @@
 			};
 			ldo8_1v8_rf: ldo8 {
 				regulator-name = "ldo8_1v8_rf";
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <3300000>;	/* Connected to VDDIO1 in SOM */
 				regulator-enable-ramp-delay = <1000>; /* Minimum of 50 us */
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
@@ -475,8 +475,6 @@
 
 	vddio1: vddio1 {
 		status = "okay";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
 		vddio1-supply = <&ldo8_1v8_rf>;
 	};
 
