@@ -518,6 +518,12 @@
 				hz = <800000000>;
 				st,pll = <&pll3_cfg_800Mhz>;
 			};
+
+			/* STM32MP25xF 900 MHz, up to 150 Mtriangle/s or 900 Mpixel/s */
+			cfg_2 {
+				hz = <900000000>;
+				st,pll = <&pll3_cfg_900Mhz>;
+			};
 		};
 	};
 };
