@@ -259,10 +259,6 @@
 
 &m4_rproc {
 	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
-	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
-	mbox-names = "vq0", "vq1", "shutdown", "detach";
-	interrupt-parent = <&exti>;
-	interrupts = <68 1>;
 	status = "disabled";
 };
 
