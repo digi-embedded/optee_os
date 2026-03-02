@@ -605,6 +605,14 @@
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
 		st,tamp-id = <3>;
 	};
+
+	/* Requires interconnecting PG1 (MIKROBUS_ADC) as TMP_IN4 and PZ2 (Tamper button on the DVK) as TMP_OUT7 */
+	tamp-active {
+		status = "disabled";
+		tamper-gpios = <&gpiog 1 0>, <&gpioz 2 0>;
+		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
+		st,tamp-id = <4>, <7>;
+	};
 };
 
 /* Console A35 */
