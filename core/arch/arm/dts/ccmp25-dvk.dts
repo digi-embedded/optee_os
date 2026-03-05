@@ -446,7 +446,12 @@
 };
 
 &pwr {
-	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
+	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, /* WKUP1 - PA0 */
+		       <0>, /* WKUP2 - PH5 */
+		       <0>, /* WKUP3 - PG1 */
+		       <0>, /* WKUP4 - PI6 */
+		       <0>, /* WKUP5 - PG2 */
+		       <0>; /* WKUP6 - PG3 */
 	status = "okay";
 
 	vdd33ucpd: vdd33ucpd {
