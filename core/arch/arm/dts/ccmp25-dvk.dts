@@ -604,6 +604,7 @@
 		tamper-gpios = <&gpioz 2 0>;
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
 		st,tamp-id = <3>;
+		st,trig-on; /* Set active level to HIGH for the DVK tamper button */
 	};
 
 	/* Requires interconnecting PG1 (MIKROBUS_ADC) as TMP_IN4 and PZ2 (Tamper button on the DVK) as TMP_OUT7 */
