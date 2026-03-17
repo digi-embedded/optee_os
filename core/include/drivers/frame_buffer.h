@@ -8,7 +8,13 @@
 #include <types_ext.h>
 
 enum frame_buffer_bpp {
-	FB_24BPP,
+	FB_ARGB_32BPP,
+	FB_RGBA_32_BPP,
+	FB_ABGR_32_BPP,
+	FB_BGRA_32_BPP,
+	FB_RGB_24_BPP,
+	FB_RGB_16_BPP,
+	FB_BGR_16_BPP,
 };
 
 struct frame_buffer {
@@ -16,6 +22,7 @@ struct frame_buffer {
 	size_t height;
 	size_t width_dpi;
 	size_t height_dpi;
+	uint8_t alpha;
 	enum frame_buffer_bpp bpp;
 	void *base;
 };

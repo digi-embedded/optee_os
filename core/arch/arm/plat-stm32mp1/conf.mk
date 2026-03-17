@@ -172,6 +172,11 @@ $(call force,CFG_STM32_SAES,n)
 CFG_WITH_SOFTWARE_PRNG ?= y
 endif
 
+ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP1-PWR-OSTL)),)
+$(call force,CFG_STM32_LOWPOWER_SIP,n)
+$(call force,CFG_STM32_PWR_SIP,n)
+endif
+
 # Force this mode to keep performance on RSA key operations
 CFG_CORE_UNSAFE_MODEXP ?= y
 
@@ -191,6 +196,7 @@ $(call force,CFG_INIT_CNTVOFF,y)
 $(call force,CFG_PM_ARM32,y)
 $(call force,CFG_PSCI_ARM32,y)
 $(call force,CFG_REGULATOR_FIXED,y)
+$(call force,CFG_SCMI_MSG_PERF_DOMAIN,y)
 $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
 $(call force,CFG_SM_PLATFORM_HANDLER,y)
 $(call force,CFG_STM32_SHARED_IO,y)
@@ -202,7 +208,6 @@ $(call force,CFG_CORE_ASYNC_NOTIF_GIC_INTID,31)
 $(call force,CFG_CORE_RESERVED_SHM,n)
 $(call force,CFG_DRIVERS_ADC,y)
 $(call force,CFG_DRIVERS_CLK_FIXED,y)
-$(call force,CFG_SCMI_MSG_PERF_DOMAIN,y)
 $(call force,CFG_SECONDARY_INIT_CNTFRQ,n)
 $(call force,CFG_STM32_EXTI,y)
 $(call force,CFG_STM32_GPIO,y)
@@ -224,11 +229,13 @@ endif # CFG_STM32MP13
 
 ifeq ($(CFG_STM32MP15),y)
 $(call force,CFG_BOOT_SECONDARY_REQUEST,y)
+$(call force,CFG_CORE_ASYNC_NOTIF,y)
+$(call force,CFG_CORE_ASYNC_NOTIF_GIC_INTID,31)
 $(call force,CFG_DRIVERS_CLK_FIXED,y)
 $(call force,CFG_DDR_LOWPOWER,y)
 $(call force,CFG_HALT_CORES_ON_PANIC_SGI,15)
-$(call force,CFG_SCMI_MSG_PERF_DOMAIN,n)
 $(call force,CFG_SECONDARY_INIT_CNTFRQ,y)
+$(call force,CFG_STM32_EXTI,y)
 $(call force,CFG_STM32_PKA,n)
 $(call force,CFG_STM32_SAES,n)
 $(call force,CFG_STM32MP1_RSTCTRL,y)
@@ -248,6 +255,7 @@ ifeq ($(CFG_WITH_PAGER),y)
 # Default use pageable PM sequence to relax pressure on pager
 CFG_PAGED_PSCI_SYSTEM_OFF ?= y
 CFG_PAGED_PSCI_SYSTEM_SUSPEND ?= y
+CFG_PAGED_PSCI_CPU_SUSPEND ?= y
 # Default use 32bit MMU since it consumes a bit less of resident memory
 CFG_WITH_LPAE ?= n
 endif
@@ -415,10 +423,23 @@ CFG_STM32MP_PANIC_ON_TZC_PERM_VIOLATION ?= y
 CFG_STM32_LOWPOWER_SIP ?= y
 CFG_STM32_PWR_SIP ?= y
 
+# Support or not PSCI CPU_SUSPEND command.
+CFG_STM32_PSCI_OSI ?= y
+
+# PSCI CPU_SUSPEND is not supported in all SIP configurations
+ifeq ($(call cfg-one-enabled, CFG_STM32_LOWPOWER_SIP CFG_STM32_PWR_SIP), y)
+CFG_STM32_PSCI_OSI = n
+endif
+
 # Enable BSEC PTA for fuses access management
 CFG_STM32_BSEC_PTA ?= y
 ifeq ($(CFG_STM32_BSEC_PTA),y)
 $(call force,CFG_STM32_BSEC,y,Required by CFG_STM32_BSEC_PTA)
+endif
+
+CFG_STM32_DEBUG_ACCESS_PTA ?= y
+ifeq ($(CFG_STM32_DEBUG_ACCESS_PTA),y)
+$(call force,CFG_STM32_BSEC,y,Mandated by CFG_STM32_DEBUG_ACCESS_PTA)
 endif
 
 $(call force,CFG_SCMI_PTA,y)
@@ -426,10 +447,8 @@ $(call force,CFG_SCMI_MSG_DRIVERS,y)
 $(call force,CFG_SCMI_SCPFW,n,SCPFW for STM32MP1 no is not supported)
 $(call force,CFG_SCMI_MSG_CLOCK,y)
 $(call force,CFG_SCMI_MSG_RESET_DOMAIN,y)
-ifeq ($(CFG_STM32MP13),y)
 $(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
 $(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
-endif
 CFG_SCMI_MSG_SHM_MSG ?= y
 CFG_SCMI_MSG_SMT ?= y
 CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= y
@@ -466,13 +485,21 @@ $(call force,CFG_WITH_SOFTWARE_PRNG,n,Mandated by CFG_HWRNG_PTA)
 $(call force,CFG_HWRNG_QUALITY,1024)
 endif
 
-# Provision enough threads to pass xtest
-ifeq ($(CFG_SCMI_PTA),y)
+# due to memory constrains when CFG_WITH_PAGER=y provision minimum number of
+# thread to pass xtest : 2
+# Else set a higher number since we have plenty of secure memory.
 ifeq ($(CFG_WITH_PAGER),y)
-CFG_NUM_THREADS ?= 3
+CFG_NUM_THREADS ?= 2
 else
 CFG_NUM_THREADS ?= 10
 endif
+
+ifeq ($(CFG_SCMI_PTA)-$(CFG_WITH_PAGER),y-y)
+$(eval CFG_NUM_THREADS = $(shell echo $$(( $(CFG_NUM_THREADS)+1))))
+endif
+
+ifeq ($(CFG_PAGED_PSCI_CPU_SUSPEND)-$(CFG_WITH_PAGER),y-y)
+$(eval CFG_NUM_THREADS = $(shell echo $$(( $(CFG_NUM_THREADS)+1))))
 endif
 
 # Default enable some test facitilites

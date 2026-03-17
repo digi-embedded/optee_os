@@ -328,7 +328,6 @@
 				resets = <&rcc I2C1_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C1_ID>;
 				status = "disabled";
 			};
@@ -340,7 +339,6 @@
 				resets = <&rcc I2C2_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C2_ID>;
 				status = "disabled";
 			};
@@ -352,7 +350,6 @@
 				resets = <&rcc I2C7_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C7_ID>;
 				status = "disabled";
 			};
@@ -519,6 +516,17 @@
 				clock-names = "pclk", "lsi";
 				resets = <&rcc IWDG2_SYS_R>;
 				access-controllers = <&rifsc STM32MP25_RIFSC_IWDG2_ID>;
+				status = "disabled";
+			};
+
+			i2c8: i2c@46040000 {
+				compatible = "st,stm32mp25-i2c";
+				reg = <0x46040000 0x400>;
+				clocks = <&rcc CK_KER_I2C8>;
+				resets = <&rcc I2C8_R>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				access-controllers = <&rifsc STM32MP25_RIFSC_I2C8_ID>;
 				status = "disabled";
 			};
 
@@ -767,6 +775,11 @@
 			oem_rproc_enc_key: oem_rproc_enc_key@540 {
 				/* 0x540 -> otp336 */
 				reg = <0x540 0x20>;
+				st,non-secure-otp-provisioning;
+			};
+
+			tfm_iak: otp352@580 {
+				reg = <0x580 0x20>;
 				st,non-secure-otp-provisioning;
 			};
 
@@ -1098,30 +1111,6 @@
 				reg = <0x80000 0x400>;
 				clocks = <&rcc CK_BUS_GPIOI>;
 				st,bank-name = "GPIOI";
-				status = "disabled";
-			};
-
-			gpioj: gpio@442d0000 {
-				gpio-controller;
-				#gpio-cells = <2>;
-				interrupt-controller;
-				#interrupt-cells = <2>;
-				#access-controller-cells = <1>;
-				reg = <0x90000 0x400>;
-				clocks = <&rcc CK_BUS_GPIOJ>;
-				st,bank-name = "GPIOJ";
-				status = "disabled";
-			};
-
-			gpiok: gpio@442e0000 {
-				gpio-controller;
-				#gpio-cells = <2>;
-				interrupt-controller;
-				#interrupt-cells = <2>;
-				#access-controller-cells = <1>;
-				reg = <0xa0000 0x400>;
-				clocks = <&rcc CK_BUS_GPIOK>;
-				st,bank-name = "GPIOK";
 				status = "disabled";
 			};
 		};

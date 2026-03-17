@@ -104,12 +104,15 @@ $(call force,CFG_SCMI_SERVER_PD_CONSUMER,n)
 $(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
 $(call force,CFG_SCMI_SERVER_RESET_CONSUMER,n)
 $(call force,CFG_STM32_BSEC_WRITE,n)
+$(call force,CFG_STM32_CPU_OPP,n)
+$(call force,CFG_STM32_GPU_OPP,n)
 $(call force,CFG_STM32_PWR_REGUL,n)
 $(call force,CFG_STM32_TAMP,n)
 $(call force,CFG_STM32MP_PROVISIONING,n)
 $(call force,CFG_TA_STM32MP_NVMEM,n)
 $(call force,CFG_STM32MP2_CLK_CAL,n)
 $(call force,CFG_STM32_PSA_SERVICE,y)
+$(call force,CFG_STM32_DEBUG_ACCESS_PTA,n)
 endif
 
 $(call force,CFG_ARM_GIC_PM,y)
@@ -325,6 +328,11 @@ endif
 CFG_STM32_BSEC_PTA ?= y
 ifeq ($(CFG_STM32_BSEC_PTA),y)
 $(call force,CFG_STM32_BSEC3,y,Mandated by CFG_STM32_BSEC_PTA)
+endif
+
+CFG_STM32_DEBUG_ACCESS_PTA ?= y
+ifeq ($(CFG_STM32_DEBUG_ACCESS_PTA),y)
+$(call force,CFG_STM32_BSEC3,y,Mandated by CFG_STM32_DEBUG_ACCESS_PTA)
 endif
 
 # Enable RTC

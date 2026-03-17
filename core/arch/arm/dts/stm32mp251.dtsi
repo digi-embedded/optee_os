@@ -328,7 +328,6 @@
 				resets = <&rcc I2C1_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C1_ID>;
 				status = "disabled";
 			};
@@ -340,7 +339,6 @@
 				resets = <&rcc I2C2_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C2_ID>;
 				status = "disabled";
 			};
@@ -352,7 +350,6 @@
 				resets = <&rcc I2C3_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C3_ID>;
 				status = "disabled";
 			};
@@ -364,7 +361,6 @@
 				resets = <&rcc I2C4_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C4_ID>;
 				status = "disabled";
 			};
@@ -376,7 +372,6 @@
 				resets = <&rcc I2C5_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C5_ID>;
 				status = "disabled";
 			};
@@ -388,7 +383,6 @@
 				resets = <&rcc I2C6_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C6_ID>;
 				status = "disabled";
 			};
@@ -400,7 +394,6 @@
 				resets = <&rcc I2C7_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C7_ID>;
 				status = "disabled";
 			};
@@ -595,7 +588,6 @@
 				resets = <&rcc I2C8_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP25_RIFSC_I2C8_ID>;
 				status = "disabled";
 			};
@@ -854,6 +846,11 @@
 			oem_rproc_enc_key: oem_rproc_enc_key@540 {
 				/* 0x540 -> otp336 */
 				reg = <0x540 0x20>;
+				st,non-secure-otp-provisioning;
+			};
+
+			tfm_iak: otp352@580 {
+				reg = <0x580 0x20>;
 				st,non-secure-otp-provisioning;
 			};
 

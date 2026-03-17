@@ -50,6 +50,7 @@
 #define GICD_IGROUPMODR(n)	(0xd00 + (n) * 4)
 #define GICD_ICFGR(n)		(0xc00 + (n) * 4)
 #define GICD_SGIR		(0xF00)
+#define GICD_CPENDSGIR(n)	(0xf10 + (n) * 4)
 
 #define GICD_CTLR_ENABLEGRP0	(1 << 0)
 #define GICD_CTLR_ENABLEGRP1	(1 << 1)
@@ -89,6 +90,8 @@
 #define GICD_SGIR_TARGET_LIST_FILTER_SHIFT	24
 #define GICD_SGIR_NSATT_SHIFT			15
 #define GICD_SGIR_CPU_TARGET_LIST_SHIFT		16
+
+#define GICD_CPENDSGIR_SHIFT(n)		((n) * 0x8)
 
 /*
  * Save/restore interrupts registered from the gic_op_add_it() handler
@@ -140,6 +143,8 @@ static void gic_op_disable(struct itr_chip *chip, size_t it);
 static void gic_op_raise_pi(struct itr_chip *chip, size_t it);
 static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
 			     uint32_t cpu_mask);
+static void gic_op_ack_sgi(struct itr_chip *chip, size_t it,
+			   uint8_t cpu_mask);
 static void gic_op_set_affinity(struct itr_chip *chip, size_t it,
 			uint8_t cpu_mask);
 
@@ -164,6 +169,7 @@ static const struct itr_ops gic_ops = {
 	.disable = gic_op_disable,
 	.raise_pi = gic_op_raise_pi,
 	.raise_sgi = gic_op_raise_sgi,
+	.ack_sgi = gic_op_ack_sgi,
 	.set_affinity = gic_op_set_affinity,
 };
 DECLARE_KEEP_PAGER(gic_ops);
@@ -574,6 +580,15 @@ static void gic_it_raise_sgi(struct gic_data *gd __maybe_unused, size_t it,
 #endif
 }
 
+static void gic_it_ack_sgi(struct gic_data *gd, size_t it, uint8_t cpu_mask)
+{
+	uint32_t mask_id = it & GICD_SGIR_SIGINTID_MASK;
+
+	/* Clear the interrupt */
+	io_write32(gd->gicd_base + GICD_CPENDSGIR(mask_id / 4),
+		   cpu_mask << GICD_CPENDSGIR_SHIFT(mask_id % 4));
+}
+
 static uint32_t gic_read_iar(struct gic_data *gd __maybe_unused)
 {
 	assert(gd == &gic_data);
@@ -768,6 +783,22 @@ static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
 		gic_it_raise_sgi(gd, it, cpu_mask, 1);
 	else
 		gic_it_raise_sgi(gd, it, cpu_mask, 0);
+}
+
+static void gic_op_ack_sgi(struct itr_chip *chip, size_t it,
+			   uint8_t cpu_mask)
+{
+	struct gic_data *gd = container_of(chip, struct gic_data, chip);
+
+	assert(gd == &gic_data);
+
+	/* Should be Software Generated Interrupt */
+	assert(it < NUM_SGI);
+
+	if (it > gd->max_it)
+		panic();
+
+	gic_it_ack_sgi(gd, it, cpu_mask);
 }
 
 static void gic_op_set_affinity(struct itr_chip *chip, size_t it,

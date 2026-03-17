@@ -65,12 +65,12 @@ void tfm_mbx_signal_msg_message(fwk_id_t device_id, void *in_buf,
                    FWK_MODULE_IDX_MSG_SMT);
 
         device_ctx->shm_out_size = out_size;
-        device_ctx->shmem_api.msg->signal_message(device_ctx->shmem_id,
-                                                  in_buf, in_size,
-                                                  out_buf, *out_size);
-    } else {
-        fwk_unexpected();
+        if (!device_ctx->shmem_api.msg->signal_message(device_ctx->shmem_id,
+                                                       in_buf, in_size,
+                                                       out_buf, *out_size))
+            return;
     }
+    fwk_unexpected();
 }
 #endif
 
@@ -244,6 +244,17 @@ static int mbx_start(fwk_id_t id)
     return FWK_SUCCESS;
 }
 
+static int mbx_process_event(const struct fwk_event *event,
+                             struct fwk_event *resp_event)
+{
+    return FWK_SUCCESS;
+}
+static int mbx_process_notification(const struct fwk_event *event,
+                                    struct fwk_event *resp_event)
+{
+    return FWK_SUCCESS;
+}
+
 /* TFM_MBX module definition */
 const struct fwk_module module_tfm_mbx = {
     .type = FWK_MODULE_TYPE_DRIVER,
@@ -253,4 +264,6 @@ const struct fwk_module module_tfm_mbx = {
     .bind = mbx_bind,
     .start = mbx_start,
     .process_bind_request = mbx_process_bind_request,
+    .process_event = mbx_process_event,
+    .process_notification = mbx_process_notification,
 };

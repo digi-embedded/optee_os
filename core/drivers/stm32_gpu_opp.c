@@ -3,6 +3,7 @@
  * Copyright (c) 2024, STMicroelectronics
  */
 
+#include <assert.h>
 #include <config.h>
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
@@ -40,10 +41,145 @@ struct gpu_opp {
 	struct regulator *regul;
 	struct gpu_dvfs *dvfs;
 	unsigned int current_opp;
+	unsigned int default_opp;
 	unsigned int opp_count;
 };
 
 static struct gpu_opp gpu_opp;
+
+static TEE_Result set_opp(unsigned int opp)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	if (regulator_is_enabled(gpu_opp.regul)) {
+		EMSG("Change OPP not allowed when GPU is used.");
+		return TEE_ERROR_ACCESS_DENIED;
+	}
+
+	/* GPU is off at this time, voltage and freq can be set in any order */
+	DMSG("set volt to %"PRIu32"uV", gpu_opp.dvfs[opp].volt_uv);
+	res = regulator_set_voltage(gpu_opp.regul, gpu_opp.dvfs[opp].volt_uv);
+	if (res) {
+		EMSG("set voltage failed");
+		return res;
+	}
+
+	DMSG("set clock to %"PRIu64"kHz", gpu_opp.dvfs[opp].freq_khz);
+	res = clk_set_rate(gpu_opp.clock, gpu_opp.dvfs[opp].freq_khz * 1000UL);
+	if (res)
+		EMSG("set rate failed");
+
+	return res;
+}
+
+#ifdef CFG_SCPFW_MOD_DVFS
+/* Request to switch to GPU operating point related to @rate */
+TEE_Result stm32_gpu_opp_set_rate(unsigned int rate)
+{
+	size_t opp = 0;
+	uint64_t rate_khz = rate / 1000UL;
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	for (opp = 0U; opp < gpu_opp.opp_count; opp++)
+		if (gpu_opp.dvfs[opp].freq_khz == rate_khz)
+			break;
+
+	if (opp > gpu_opp.opp_count)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	/* set OPP: configure clock and voltage with SoC function */
+	res = set_opp(opp);
+	if (!res)
+		gpu_opp.current_opp = opp;
+
+	return res;
+}
+
+/* Get rate related to current GPU operating point */
+unsigned int stm32_gpu_opp_get_rate(void)
+{
+	return clk_get_rate(gpu_opp.clock);
+}
+
+/* Request to GPU operating point related to @level */
+TEE_Result stm32_gpu_opp_get_rate_for_level(unsigned int level,
+					    unsigned int *rate)
+{
+	if (level >= gpu_opp.opp_count)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	*rate = gpu_opp.dvfs[level].freq_khz * 1000UL;
+
+	return TEE_SUCCESS;
+}
+
+unsigned int stm32_gpu_opp_get_count(void)
+{
+	return gpu_opp.opp_count;
+}
+
+static int cmp_gpu_opp_by_freq(const void *a, const void *b)
+{
+	const struct gpu_dvfs *opp_a = a;
+	const struct gpu_dvfs *opp_b = b;
+
+	if (opp_a->freq_khz == opp_b->freq_khz)
+		return CMP_TRILEAN(opp_a->volt_uv, opp_b->volt_uv);
+	else
+		return CMP_TRILEAN(opp_a->freq_khz, opp_b->freq_khz);
+}
+
+TEE_Result optee_scmi_server_gpu_dvfs(int perf_id,
+				      struct scpfw_channel_config *channel_cfg)
+{
+	unsigned int *dvfs_khz = NULL;
+	unsigned int *dvfs_mv = NULL;
+	size_t opp = 0;
+	struct gpu_dvfs *sorted_dvfs = NULL;
+
+	assert(channel_cfg && gpu_opp.opp_count);
+
+	sorted_dvfs = calloc(gpu_opp.opp_count, sizeof(*sorted_dvfs));
+	dvfs_khz = calloc(gpu_opp.opp_count, sizeof(*dvfs_khz));
+	dvfs_mv = calloc(gpu_opp.opp_count, sizeof(*dvfs_mv));
+	if (!sorted_dvfs || !dvfs_khz || !dvfs_mv) {
+		free(sorted_dvfs);
+		free(dvfs_mv);
+		free(dvfs_khz);
+
+		return TEE_ERROR_OUT_OF_MEMORY;
+	}
+
+	/*
+	 * Sort operating points by increasing frequencies as expected by
+	 * SCP-firmware DVFS module.
+	 */
+	memcpy(sorted_dvfs, gpu_opp.dvfs,
+	       gpu_opp.opp_count * sizeof(*sorted_dvfs));
+
+	qsort(sorted_dvfs, gpu_opp.opp_count, sizeof(*sorted_dvfs),
+	      cmp_gpu_opp_by_freq);
+
+	/* Feed SCP-firmware with GPU DVFS configuration data */
+	for (opp = 0; opp < gpu_opp.opp_count; opp++) {
+		dvfs_khz[opp] = sorted_dvfs[opp].freq_khz;
+		dvfs_mv[opp] = sorted_dvfs[opp].volt_uv / U(1000);
+	}
+
+	free(sorted_dvfs);
+
+	channel_cfg->perfd[perf_id] = (struct scmi_perfd){
+		.name = "GPU DVFS",
+		.initial_opp = gpu_opp.current_opp,
+		.dvfs_opp_count = gpu_opp.opp_count,
+		.dvfs_opp_khz = dvfs_khz,
+		.dvfs_opp_mv = dvfs_mv,
+		.opp_id = OPP_ID_GPU,
+	};
+
+	return TEE_SUCCESS;
+}
+#endif /* CFG_SCPFW_MOD_DVFS */
 
 static TEE_Result stm32_gpu_opp_is_supported(const void *fdt, int subnode)
 {
@@ -75,6 +211,7 @@ static TEE_Result stm32_gpu_opp_get_dt_subnode(const void *fdt, int node)
 	uint32_t volt_uv = 0;
 	unsigned int i = 0;
 	int subnode = -1;
+	bool opp_default = false;
 
 	fdt_for_each_subnode(subnode, fdt, node)
 		gpu_opp.opp_count++;
@@ -83,7 +220,7 @@ static TEE_Result stm32_gpu_opp_get_dt_subnode(const void *fdt, int node)
 	if (!gpu_opp.dvfs)
 		return TEE_ERROR_OUT_OF_MEMORY;
 
-	gpu_opp.current_opp = gpu_opp.opp_count;
+	gpu_opp.default_opp = gpu_opp.opp_count;
 
 	/*
 	 * Skip OPP not supported because of:
@@ -144,7 +281,8 @@ static TEE_Result stm32_gpu_opp_get_dt_subnode(const void *fdt, int node)
 
 		if (fdt_getprop(fdt, subnode, "st,opp-default", NULL) &&
 		    freq_khz > freq_khz_opp_def) {
-			gpu_opp.current_opp = i;
+			opp_default = true;
+			gpu_opp.default_opp = i;
 			freq_khz_opp_def = freq_khz;
 		}
 
@@ -152,7 +290,7 @@ static TEE_Result stm32_gpu_opp_get_dt_subnode(const void *fdt, int node)
 	}
 
 	/* Erreur when "st,opp-default" is not present */
-	if (gpu_opp.current_opp == gpu_opp.opp_count) {
+	if (!opp_default) {
 		EMSG("no st,opp-default found");
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
@@ -196,25 +334,8 @@ stm32_gpu_init(const void *fdt, int node, const void *compat_data __unused)
 	if (res)
 		goto error;
 
-	/*
-	 * As the GPU is off at this time, voltage and freq can be set
-	 * in any order.
-	 */
-	DMSG("set volt to %"PRIu32"uV",
-	     gpu_opp.dvfs[gpu_opp.current_opp].volt_uv);
-	res = regulator_set_voltage(gpu_opp.regul,
-				    gpu_opp.dvfs[gpu_opp.current_opp].volt_uv);
+	res = set_opp(gpu_opp.default_opp);
 	if (res) {
-		EMSG("set voltage failed");
-		goto error;
-	}
-
-	DMSG("set clock to %"PRIu64"kHz",
-	     gpu_opp.dvfs[gpu_opp.current_opp].freq_khz);
-	res = clk_set_rate(gpu_opp.clock,
-			   gpu_opp.dvfs[gpu_opp.current_opp].freq_khz * 1000UL);
-	if (res) {
-		EMSG("set rate failed");
 		panic();
 	}
 
@@ -235,4 +356,3 @@ DEFINE_DT_DRIVER(stm32_gpu_dt_driver) = {
 	.match_table = stm32_gpu_match_table,
 	.probe = &stm32_gpu_init,
 };
-

@@ -348,9 +348,9 @@ static void scmi_clock_config_set_v2(struct scmi_msg *msg)
 static void scmi_clock_config_set(struct scmi_msg *msg)
 {
 	/* Support both old and new protocol base on message size */
-	if (msg->in_size != sizeof(struct scmi_clock_config_set_a2p))
+	if (msg->in_size == sizeof(struct scmi_clock_config_set_a2p))
 		scmi_clock_config_set_v1(msg);
-	else if (msg->in_size != sizeof(struct scmi_clock_config_set_v2_a2p))
+	else if (msg->in_size == sizeof(struct scmi_clock_config_set_v2_a2p))
 		scmi_clock_config_set_v2(msg);
 	else
 		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
@@ -392,9 +392,9 @@ static void scmi_clock_config_get(struct scmi_msg *msg)
 				       plat_scmi_clock_count(msg->channel_id));
 
 	switch (in_args->flags & SCMI_CLOCK_CONFIG_GET_EXT_TYPE_MASK) {
-	case SCMI_CLOCK_CONFIG_SET_EXT_TYPE_UNUSED:
+	case SCMI_CLOCK_EXTENDED_CONFIG_TYPE_UNUSED:
 		break;
-	case SCMI_CLOCK_CONFIG_SET_EXT_TYPE_DUTY_CYCLE:
+	case SCMI_CLOCK_EXTENDED_CONFIG_TYPE_DUTY_CYCLE:
 		status = get_duty_cycle(msg->channel_id, clock_id,
 					&return_values.extended_config_val);
 		if (status == SCMI_NOT_SUPPORTED) {

@@ -96,7 +96,7 @@ static void loc_flush(struct serial_chip *chip)
 	if (!loc_chip_clk_is_enabled(chip))
 		return;
 
-	while (!(io_read32(base + UART_REG_ISR) & USART_ISR_TXFE))
+	while (!(io_read32(base + UART_REG_ISR) & USART_ISR_TC))
 		if (timeout_elapsed(timeout))
 			return;
 }
@@ -300,6 +300,7 @@ static TEE_Result stm32_uart_pm(enum pm_op op, uint32_t pm_hint,
 
 	return res;
 }
+DECLARE_KEEP_PAGER_PM(stm32_uart_pm);
 
 static TEE_Result stm32_uart_probe(const void *fdt, int node,
 				   const void *compt_data __unused)

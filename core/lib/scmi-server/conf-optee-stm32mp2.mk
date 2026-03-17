@@ -15,6 +15,7 @@ $(call force,CFG_SCPFW_MOD_SCMI_CLOCK,y)
 $(call force,CFG_SCPFW_MOD_SCMI_PERF,y)
 $(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
 $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
+$(call force,CFG_SCPFW_MOD_STM32_OPP,y)
 
 ifeq ($(call cfg-one-enabled, CFG_STM32MP23 CFG_STM32MP25),y)
 $(call force,CFG_SCPFW_MOD_POWER_DOMAIN,y)
@@ -25,12 +26,14 @@ endif
 $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
 $(call force,CFG_SCPFW_SCMI_PERF_PROTOCOL_OPS,y)
 
-# Info level is sufficient for scp-firmware
+ifeq (,$(filter 0 1 2,$(CFG_TEE_CORE_LOG_LEVEL)))
+# For OP-TEE TRACE >= DEBUG (3), the scp-firmware Info(1) level is sufficient
+# and for lower mode, the default value is defined in scmi-server/conf.mk
 CFG_SCPFW_LOG_LEVEL ?= 1
+endif
 
 $(call force,CFG_SCPFW_NOTIFICATION,n)
 $(call force,CFG_SCPFW_FAST_CHANNEL,n)
 
 # Default configuration values for product specific modules
-CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR ?= n
 CFG_SCPFW_MOD_STM32_PD ?= n

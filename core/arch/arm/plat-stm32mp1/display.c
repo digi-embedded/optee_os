@@ -31,7 +31,8 @@ static struct frame_buffer tui_frame_buffer = {
 	.height     = 272,
 	.width_dpi  = 160,
 	.height_dpi = 160,
-	.bpp        = FB_24BPP, /* never used actually.*/
+	.bpp        = FB_ARGB_32BPP,
+	.alpha      = 0xFF,
 };
 
 struct frame_buffer *display_get_frame_buffer(void)

@@ -56,6 +56,18 @@ static int stm32_pd_reset(fwk_id_t pd_id)
     return FWK_E_SUPPORT;
 }
 
+static int stm32_pd_shutdown(fwk_id_t dev_id,
+                             enum mod_pd_system_shutdown system_shutdown)
+{
+    /*
+     * Since request come from scmi system power, the agent m33 ns is in charge
+     * to handle the request
+     */
+    FWK_LOG_DEBUG("[STM32_PD] %s @%d", __func__, __LINE__);
+
+    return FWK_PENDING;
+}
+
 /*
  * stm32_pd_set_state_gpu
  *
@@ -209,12 +221,6 @@ static int stm32_pd_element_init(fwk_id_t element_id,
 
     ctx->config = (const struct mod_stm32_pd_config *)data;
 
-    if (fwk_id_get_element_idx(element_id) == PD_SCMI_GPU) {
-        ctx->current_state = MOD_PD_STATE_OFF;
-        return FWK_SUCCESS;
-    }
-
-    ctx->current_state = MOD_PD_STATE_ON;
     return FWK_SUCCESS;
 }
 
@@ -222,12 +228,14 @@ static const struct mod_pd_driver_api stm32_pd_api_gpu = {
     .set_state = stm32_pd_set_state_gpu,
     .get_state = stm32_pd_get_state,
     .reset = stm32_pd_reset,
+    .shutdown = stm32_pd_shutdown,
 };
 
 static const struct mod_pd_driver_api stm32_pd_api = {
     .set_state = stm32_pd_set_state,
     .get_state = stm32_pd_get_state,
     .reset = stm32_pd_reset,
+    .shutdown = stm32_pd_shutdown,
 };
 
 static int stm32_pd_process_bind_request(fwk_id_t requester_id,
@@ -240,12 +248,19 @@ static int stm32_pd_process_bind_request(fwk_id_t requester_id,
     ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(target_id);
     ctx->requester_id = requester_id;
 
-    if (fwk_id_get_element_idx(target_id) == PD_SCMI_GPU) {
-        *api = &stm32_pd_api_gpu;
-        return FWK_SUCCESS;
+    switch (fwk_id_get_api_idx(api_type)) {
+        case MOD_STM32_PD_API_IDX_BASIC:
+            *api = &stm32_pd_api;
+            ctx->current_state = MOD_PD_STATE_ON;
+            break;
+        case MOD_STM32_PD_API_IDX_GPU:
+            *api = &stm32_pd_api_gpu;
+            ctx->current_state = MOD_PD_STATE_OFF;
+            break;
+        default:
+            return FWK_E_PARAM;
     }
 
-    *api = &stm32_pd_api;
     return FWK_SUCCESS;
 }
 
@@ -259,7 +274,7 @@ static int stm32_pd_init(fwk_id_t module_id,
 
 const struct fwk_module module_stm32_pd = {
     .type = FWK_MODULE_TYPE_DRIVER,
-    .api_count = 1,
+    .api_count = MOD_STM32_PD_API_IDX_COUNT,
     .init = stm32_pd_init,
     .element_init = stm32_pd_element_init,
     .bind = stm32_pd_bind,

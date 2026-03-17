@@ -11,6 +11,8 @@
 #include <drivers/rstctrl.h>
 #include <drivers/stm32mp_dt_bindings.h>
 #include <drivers/stm32mp1_rcc.h>
+#include <drivers/stm32mp1_pwr.h>
+#include <drivers/gic.h>
 #include <initcall.h>
 #include <io.h>
 #include <keep.h>
@@ -39,6 +41,13 @@
 
 #define CONSOLE_FLUSH_DELAY_MS		10
 
+#define STM32_PM_CPU_STANDBY_FLAG		BIT(31)
+#define STM32_PM_CARE_OTHER_CPU_STATE_FLAG	BIT(30)
+#define STM32_PM_SOC_MODE_MASK			GENMASK_32(7, 0)
+
+static_assert(STM32_PM_MAX_SOC_MODE ==
+	      (STM32_PM_MAX_SOC_MODE & STM32_PM_SOC_MODE_MASK));
+
 /*
  * SMP boot support and access to the mailbox
  */
@@ -50,7 +59,7 @@ enum core_state_id {
 	CORE_ON,
 };
 
-static enum core_state_id core_state[CFG_TEE_CORE_NB_CORE];
+static enum core_state_id core_state[2];
 static unsigned int __maybe_unused state_lock = SPINLOCK_UNLOCK;
 
 static uint32_t __maybe_unused lock_state_access(void)
@@ -232,8 +241,11 @@ int psci_cpu_off(void)
 }
 #endif
 
-static int enter_cstop_suspend(unsigned int soc_mode)
+/* Start non-pageable section */
+static int enter_cstop_suspend(unsigned int arg)
 {
+	unsigned int soc_mode = arg & STM32_PM_SOC_MODE_MASK;
+	TEE_Result __maybe_unused ret = TEE_ERROR_GENERIC;
 	int rc = 1;
 
 	if (read_isr())
@@ -242,8 +254,11 @@ static int enter_cstop_suspend(unsigned int soc_mode)
 	stm32_enter_cstop(soc_mode);
 
 #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
-	stm32mp_pm_call_bl2_lp_entry(soc_mode);
-	rc = 0;
+	ret = stm32mp_pm_call_bl2_lp_entry(arg);
+	if (ret == TEE_ERROR_BAD_STATE)
+		rc = -1;
+	else if (ret == TEE_SUCCESS)
+		rc = 0;
 #else
 	if (need_to_backup_cpu_context(soc_mode)) {
 		stm32_pm_cpu_power_down_wfi();
@@ -257,10 +272,11 @@ static int enter_cstop_suspend(unsigned int soc_mode)
 
 	return rc;
 }
+DECLARE_KEEP_PAGER(enter_cstop_suspend);
 
 static int plat_suspend(uint32_t arg)
 {
-	unsigned int soc_mode = arg;
+	unsigned int soc_mode = arg & STM32_PM_SOC_MODE_MASK;
 	size_t pos = get_core_pos();
 	int rc = 1;
 
@@ -272,7 +288,7 @@ static int plat_suspend(uint32_t arg)
 	core_state[pos] = CORE_RET;
 
 	if (stm32mp_pm_save_context(soc_mode) == TEE_SUCCESS)
-		rc = enter_cstop_suspend(soc_mode);
+		rc = enter_cstop_suspend(arg);
 
 	stm32mp_pm_restore_context(soc_mode);
 	stm32mp_pm_wipe_context();
@@ -385,6 +401,18 @@ uint32_t __weak __psci_system_suspend(uintptr_t entry,
 			if (!IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_SUSPEND))
 				sm_restore_unbanked_regs(&nsec->ub_regs);
 		}
+#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
+		/*
+		 * TF-A return to caller if standby is aborted (error)
+		 * or is reduced to Stop mode with simple WFI exit
+		 * so result OK as low power mode is performed (Stop)
+		 * PS: for OPTEE in SYSRAM and aborted Standby,
+		 *     stm32_pm_cpu_power_down_wfi() calls
+		 *     stm32mp_sysram_resume()
+		 *     and this part is NOT reached
+		 */
+		ret = 0;
+#endif
 	} else {
 		ret = plat_suspend((uint32_t)soc_mode);
 	}
@@ -394,6 +422,7 @@ uint32_t __weak __psci_system_suspend(uintptr_t entry,
 		IMSG("Resumed");
 		return PSCI_RET_SUCCESS;
 	}
+	EMSG("Resumed with error (%d)", ret);
 
 	return PSCI_RET_INTERNAL_FAILURE;
 }
@@ -440,15 +469,17 @@ int psci_features(uint32_t psci_fid)
 		return PSCI_RET_SUCCESS;
 	case PSCI_CPU_ON:
 	case PSCI_CPU_OFF:
-		if (stm32mp_supports_second_core())
-			return PSCI_RET_SUCCESS;
-		return PSCI_RET_NOT_SUPPORTED;
+		return PSCI_RET_SUCCESS;
 	case PSCI_SYSTEM_OFF:
 		if (stm32mp_with_pmic())
 			return PSCI_RET_SUCCESS;
 		return PSCI_RET_NOT_SUPPORTED;
 	case PSCI_SYSTEM_SUSPEND:
 		return PSCI_RET_SUCCESS;
+	case PSCI_CPU_SUSPEND:
+		if (IS_ENABLED(CFG_STM32_PSCI_OSI))
+			return PSCI_RET_SUCCESS | PSCI_FEATURE_OSI_SUPPORTED;
+		return PSCI_RET_NOT_SUPPORTED;
 	default:
 		return PSCI_RET_NOT_SUPPORTED;
 	}
@@ -459,3 +490,219 @@ uint32_t psci_version(void)
 {
 	return PSCI_VERSION_1_0;
 }
+
+#ifdef CFG_STM32_PSCI_OSI
+
+int psci_set_system_suspend_mode(uint32_t mode)
+{
+	switch (mode) {
+		case PSCI_SUSPEND_MODE_PLATFORM_COORDINATED:
+			return PSCI_RET_SUCCESS;
+		case PSCI_SUSPEND_MODE_OS_INITIATED:
+			return PSCI_RET_SUCCESS;
+		default:
+			return PSCI_RET_INVALID_PARAMETERS;
+	}
+}
+
+enum cstop_state_id {
+	STATE_NONE = 0,
+	STATE_AUTO_CSTOP_ENTRY
+};
+
+static unsigned int cstop_lock = SPINLOCK_UNLOCK;
+static volatile enum cstop_state_id cstop_cpux_state[CFG_TEE_CORE_NB_CORE];
+static volatile enum cstop_state_id cstop_enter;
+
+static enum cstop_state_id get_locked(volatile enum cstop_state_id *state)
+{
+	uint32_t exceptions = 0;
+	volatile enum cstop_state_id val = STATE_NONE;
+
+	exceptions = may_spin_lock(&cstop_lock);
+	val = *state;
+	may_spin_unlock(&cstop_lock, exceptions);
+
+	return val;
+}
+
+static void set_locked(volatile enum cstop_state_id *state,
+		       enum cstop_state_id val)
+{
+	uint32_t exceptions = 0;
+
+	exceptions = may_spin_lock(&cstop_lock);
+	*state = val;
+	may_spin_unlock(&cstop_lock, exceptions);
+}
+
+static inline size_t stm32_get_pos_other(void) {
+	return get_core_pos() == 1 ? 0 : 1;
+}
+
+static void stm32_cpu_standby(void)
+{
+	size_t pos = get_core_pos();
+	uint32_t exceptions = 0;
+
+	set_locked(&cstop_cpux_state[pos], STATE_AUTO_CSTOP_ENTRY);
+
+#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+	/*
+	 * Enter standby state.
+	 * Synchronize on memory accesses and instruction flow before the WFI
+	 * instruction.
+	 */
+	do {
+		dsb();
+		isb();
+		wfi();
+	} while (!read_isr());
+#else
+	if (stm32mp_pm_call_bl2_lp_entry(STM32_PM_CPU_STANDBY_FLAG))
+		panic();
+#endif
+
+	exceptions = may_spin_lock(&cstop_lock);
+
+#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+	if (cstop_enter == STATE_AUTO_CSTOP_ENTRY) {
+		struct itr_chip *itr_chip = interrupt_get_main_chip();
+		size_t other_pos = stm32_get_pos_other();
+
+		interrupt_raise_sgi(itr_chip, GIC_SEC_SGI_6,
+				    TARGET_CPUX_GIC_MASK(other_pos));
+	}
+#endif
+
+	cstop_cpux_state[pos] = STATE_NONE;
+
+	may_spin_unlock(&cstop_lock, exceptions);
+
+	while (get_locked(&cstop_enter) != STATE_NONE)
+		wfe();
+}
+DECLARE_KEEP_PAGER(stm32_cpu_standby);
+
+static int stm32_pwr_domain_suspend(unsigned int soc_mode)
+{
+	size_t other_pos = stm32_get_pos_other();
+	int ret = PSCI_RET_INTERNAL_FAILURE;
+	uint32_t arg = (uint32_t)soc_mode;
+	uint32_t exceptions = 0;
+	bool denied = false;
+	uint32_t scr = 0;
+	int rc = 1;
+
+	exceptions = may_spin_lock(&cstop_lock);
+
+	/* If we are already handling a low power request */
+	if (cstop_enter == STATE_AUTO_CSTOP_ENTRY)
+		denied = true;
+
+	if (core_state[other_pos] != CORE_OFF) {
+		arg |= STM32_PM_CARE_OTHER_CPU_STATE_FLAG;
+
+		/* If the other core is ON but not already in LP */
+		if (cstop_cpux_state[other_pos] != STATE_AUTO_CSTOP_ENTRY)
+			denied = true;
+	}
+
+	/* If an IRQ is pending */
+	if (read_isr())
+		denied = true;
+
+	if (denied) {
+		may_spin_unlock(&cstop_lock, exceptions);
+		return PSCI_RET_DENIED;
+	}
+
+	cstop_enter = STATE_AUTO_CSTOP_ENTRY;
+
+	may_spin_unlock(&cstop_lock, exceptions);
+
+	scr = read_scr();
+	write_scr(scr | SCR_IRQ | SCR_FIQ);
+
+	rc = plat_suspend(arg);
+	if (rc == -1)
+		ret = PSCI_RET_DENIED;
+	else if (rc == 0)
+		ret = PSCI_RET_SUCCESS;
+
+	interrupt_ack_sgi(interrupt_get_main_chip(),
+			  GIC_SEC_SGI_6,
+			  TARGET_CPUX_GIC_MASK(other_pos));
+
+	write_scr(scr);
+	set_locked(&cstop_enter, STATE_NONE);
+	sev();
+
+	return ret;
+}
+
+/*
+ * Some part of this code are not able to handle more than 2 CPUs.
+ */
+static_assert(CFG_TEE_CORE_NB_CORE <= 2);
+
+#define STM32_STATE_ID_CPU_PWRDN	U(0x1)
+#define STM32_STATE_ID_STOP1		U(0x11)
+#define STM32_STATE_ID_LP_STOP1		U(0x21)
+#define STM32_STATE_ID_LPLV_STOP1	U(0x211)
+
+/*
+ * Note: this function is weak just to make it possible to exclude it from
+ * the unpaged area.
+ */
+int __weak __psci_cpu_suspend(uint32_t power_state,
+			      uintptr_t entry __unused,
+			      uint32_t context_id __unused,
+			      struct sm_nsec_ctx *nsec __unused)
+{
+	uint32_t state_id = 0;
+	uint32_t state_type = 0;
+	uint32_t power_level __maybe_unused = 0;
+	int ret = PSCI_RET_INTERNAL_FAILURE;
+
+	state_id = (power_state & PSCI_POWER_STATE_ID_MASK) >>
+		   PSCI_POWER_STATE_ID_SHIFT;
+	state_type = (power_state & PSCI_POWER_STATE_TYPE_MASK) >>
+		     PSCI_POWER_STATE_TYPE_SHIFT;
+	power_level = (power_state & PSCI_POWER_STATE_AFFL_MASK) >>
+		      PSCI_POWER_STATE_AFFL_SHIFT;
+
+	DMSG("power-level %#x state-type %#x state-id %#x",
+	     power_level, state_type, state_id);
+
+	if (state_type != PSCI_POWER_STATE_TYPE_STANDBY)
+		return PSCI_RET_INVALID_PARAMETERS;
+
+	switch (state_id) {
+	case STM32_STATE_ID_CPU_PWRDN:
+		stm32_cpu_standby();
+		ret = PSCI_RET_SUCCESS;
+		break;
+	case STM32_STATE_ID_STOP1:
+		ret = stm32_pwr_domain_suspend(STM32_PM_CSTOP_ALLOW_STOP);
+		break;
+	case STM32_STATE_ID_LP_STOP1:
+		ret = stm32_pwr_domain_suspend(STM32_PM_CSTOP_ALLOW_LP_STOP);
+		break;
+	case STM32_STATE_ID_LPLV_STOP1:
+		ret = stm32_pwr_domain_suspend(STM32_PM_CSTOP_ALLOW_LPLV_STOP);
+		break;
+	default:
+	}
+
+	return ret;
+}
+
+/* Override default psci_cpu_suspend() with platform specific sequence */
+int psci_cpu_suspend(uint32_t power_state, uintptr_t entry, uint32_t context_id,
+		     struct sm_nsec_ctx *nsec)
+{
+	return __psci_cpu_suspend(power_state, entry, context_id, nsec);
+}
+
+#endif /* CFG_STM32_PSCI_OSI */

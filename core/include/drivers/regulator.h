@@ -175,13 +175,6 @@ bool regulator_is_enabled(struct regulator *regulator);
 TEE_Result regulator_set_voltage(struct regulator *regulator, int level_uv);
 
 /*
- * regulator_get_by_name() - Get a regulator from its name
- * @name - name of the regulator
- * Return pointer to regulator if succeed, NULL else.
- */
-struct regulator *regulator_get_by_name(const char *name);
-
-/*
  * regulator_register() - Register and initialize a regulator
  * @regulator: Regulator reference
  */
@@ -207,11 +200,6 @@ static inline bool regulator_is_enabled(struct regulator *regulator __unused)
 
 static inline TEE_Result regulator_set_voltage(struct regulator *regul __unused,
 					       int level_mv __unused)
-{
-	return TEE_ERROR_NOT_SUPPORTED;
-}
-
-static inline struct regulator *regulator_get_by_name(const char *name)
 {
 	return TEE_ERROR_NOT_SUPPORTED;
 }

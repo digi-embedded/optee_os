@@ -206,7 +206,7 @@ comp-cppflags-$3 = $$(filter-out $$(CPPFLAGS_REMOVE) $$(cppflags-remove) \
 		      $$(cppflags$$(comp-sm-$3)) \
 		      $$(cppflags-lib$$(comp-lib-$3)) $$(cppflags-$3))
 
-comp-flags-$3 += -MD -MF $$(comp-dep-$3) -MT $$@
+comp-flags-$3 += -MD -MF $$(comp-dep-$3) -MP -MT $$@
 comp-flags-$3 += $$(comp-cppflags-$3)
 
 comp-cmd-$3 = $$(CC$(sm)) $$(comp-flags-$3) -fverbose-asm -S $$< -o $$@
@@ -273,7 +273,7 @@ cleanfiles := $$(cleanfiles) $2 \
 dtb-cppflags-$2 := -Icore/include/ -I$(arch-dir)/dts -x assembler-with-cpp \
 		   -Ulinux -Uunix \
 		   -E -ffreestanding $$(CPPFLAGS) \
-		   -MD -MF $$(dtb-predep-$2) -MT $2
+		   -MD -MF $$(dtb-predep-$2) -MP -MT $2
 
 dtb-dtcflags-$2	:= $$(DTC_FLAGS) -d $$(dtb-dep-$2)
 

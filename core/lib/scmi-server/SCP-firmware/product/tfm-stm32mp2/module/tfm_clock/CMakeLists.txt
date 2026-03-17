@@ -30,5 +30,6 @@ target_sources(${SCP_MODULE_TARGET}
 target_link_libraries(${SCP_MODULE_TARGET}
 	PRIVATE
 		module-clock
+		platform_s
 		tfm_config
 )

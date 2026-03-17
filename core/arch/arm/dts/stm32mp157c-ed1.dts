@@ -88,6 +88,7 @@
 		gpios = <&gpiof 14 (GPIO_ACTIVE_HIGH | GPIO_STM32_NSEC)>;
 		states = <1800000 0x1>,
 			 <2900000 0x0>;
+		gpios-states = <0>;
 	};
 
 	vin: vin {
@@ -200,9 +201,6 @@
 	pmic: stpmic@33 {
 		compatible = "st,stpmic1";
 		reg = <0x33>;
-		interrupts-extended = <&gpioa 0 IRQ_TYPE_EDGE_FALLING>;
-		interrupt-controller;
-		#interrupt-cells = <2>;
 		status = "okay";
 
 		regulators {
@@ -356,10 +354,6 @@
 
 &m4_rproc {
 	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
-	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
-	mbox-names = "vq0", "vq1", "shutdown", "detach";
-	interrupt-parent = <&exti>;
-	interrupts = <68 1>;
 	status = "disabled";
 };
 

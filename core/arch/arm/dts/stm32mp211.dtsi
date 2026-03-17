@@ -297,7 +297,6 @@
 				resets = <&rcc I2C1_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP21_RIFSC_I2C1_ID>;
 				status = "disabled";
 			};
@@ -309,7 +308,6 @@
 				resets = <&rcc I2C1_R>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				i2c-analog-filter;
 				access-controllers = <&rifsc STM32MP21_RIFSC_I2C2_ID>;
 				status = "disabled";
 			};
@@ -474,7 +472,6 @@
 				reg = <0x46040000 0x400>;
 				clocks = <&rcc CK_KER_I2C3>;
 				resets = <&rcc I2C3_R>;
-				i2c-analog-filter;
 				#address-cells = <1>;
 				#size-cells = <0>;
 				access-controllers = <&rifsc STM32MP21_RIFSC_I2C3_ID>;
@@ -694,6 +691,11 @@
 			oem_rproc_enc_key: oem_rproc_enc_key@530 {
 				/* 0x530 -> otp332 */
 				reg = <0x530 0x20>;
+				st,non-secure-otp-provisioning;
+			};
+
+			tfm_iak: otp340@550 {
+				reg = <0x550 0x20>;
 				st,non-secure-otp-provisioning;
 			};
 

@@ -835,23 +835,30 @@
 					};
 
 					clock@81 {
+						reg = <CK_SCMI_IPCC2_AM>;
+						domain-name = "ck_ipcc2_am";
+						clocks = <&rcc CK_IPCC2_AM>;
+						flags = <SCMI_CLOCK_DEFAULT_ENABLED>;
+					};
+
+					clock@82 {
 						reg = <CK_SCMI_LPDMA_AM>;
 						domain-name = "ck_lpdma_am";
 						clocks = <&rcc CK_LPDMA_AM>;
 						flags = <SCMI_CLOCK_DEFAULT_ENABLED>;
 					};
 
-					clock@82 {
+					clock@83 {
 						reg = <CK_SCMI_RTC_AM>;
 						domain-name = "ck_rtc_am";
 						clocks = <&rcc CK_RTC_AM>;
 						flags = <SCMI_CLOCK_DEFAULT_ENABLED>;
 					};
 
-					clock@83 {
-						reg = <CK_SCMI_IPCC2_AM>;
-						domain-name = "ck_ipcc2_am";
-						clocks = <&rcc CK_IPCC2_AM>;
+					clock@84 {
+						reg = <CK_SCMI_ICN_PCIE>;
+						domain-name = "ck_icn_p_pcie";
+						clocks = <&rcc CK_BUS_PCIE>;
 						flags = <SCMI_CLOCK_DEFAULT_ENABLED>;
 					};
 				};

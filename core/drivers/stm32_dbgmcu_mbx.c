@@ -266,7 +266,7 @@ static TEE_Result stm32_dbgmcu_mbx_probe(const void *fdt, int node,
 	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
 		notif_register_driver(&stm32_dbgmcu_mbx_notif);
 
-	stm32_dbgmcu_mbx_write_auth_dev(0xbadf00d0, 1000);
+	io_write32(dbgmcu_d.base + DBGMCU_DBG_AUTH_DEV, 0xbadf00d0);
 
 	/* Before enabling interrupts, handle early debug request */
 	if (stm32_dbgmcu_mbx_early_request())

@@ -7,7 +7,6 @@
 #include <config.h>
 #include <drivers/clk.h>
 #include <drivers/clk_dt.h>
-#include <drivers/stm32_bsec.h>
 #include <drivers/stm32_rif.h>
 #include <drivers/stm32mp25_rcc.h>
 #include <dt-bindings/clock/stm32mp25-clks.h>
@@ -213,8 +212,9 @@ struct stm32_clk_platdata {
 	uint32_t *kernelclk;
 	uint32_t nflexgen;
 	uint32_t *flexgen;
+#ifndef CFG_STM32_CM33TDCID
 	uint32_t c1msrd;
-	bool safe_rst;
+#endif
 	struct rif_conf_data conf_data;
 	unsigned int nb_res;
 };
@@ -1410,11 +1410,10 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
 	if (err != 0)
 		return err;
 
+#ifndef CFG_STM32_CM33TDCID
 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd",
 						UINT32_MAX);
-
-	pdata->safe_rst = fdt_getprop(fdt, node, "st,safe_rst",
-				      NULL) ? true : false;
+#endif
 
 	pdata->rcc_base = stm32_rcc_base();
 
@@ -1646,11 +1645,14 @@ static void clk_stm32_debug_display_opp_dt_cfg(struct clk_stm32_priv *priv)
 	clk_stm32_debug_display_opp_cfg("ck_gpu", PLL3_ID, opp->gpu_opp);
 }
 
-static void clk_stm32_debug_display_others_dt_cfg(struct clk_stm32_priv *priv)
+static void clk_stm32_debug_display_others_dt_cfg(struct clk_stm32_priv *priv
+						  __maybe_unused)
 {
+#ifndef CFG_STM32_CM33TDCID
 	struct stm32_clk_platdata *pdata = priv->pdata;
 
 	printf("c1msrd = %"PRIu32"\n", pdata->c1msrd);
+#endif
 }
 
 static void clk_stm32_debug_display_pdata(void)
@@ -1669,9 +1671,9 @@ static void clk_stm32_debug_display_pdata(void)
 static void stm32mp2_a35_ss_on_bypass(void)
 {
 	uint64_t timeout = 0;
-	uint32_t chgclkreq = stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ);
+	uint32_t chgclkreq = stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ);
 
-	if (chgclkreq & A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) {
+	if (chgclkreq & CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) {
 		/* Nothing to do, clock source is already set on bypass clock */
 		return;
 	}
@@ -1680,37 +1682,37 @@ static void stm32mp2_a35_ss_on_bypass(void)
 	 * for clkext2f frequency at 400MHZ, the default flexgen63 config,
 	 * divider by 2 is required with ARM_DIVSEL=0
 	 */
-	if (chgclkreq & A35SS_SSC_CHGCLKREQ_ARM_DIVSEL) {
-		stm32mp_syscfg_write(A35SS_SSC_CHGCLKREQ,
+	if (chgclkreq & CA35SS_SSC_CHGCLKREQ_ARM_DIVSEL) {
+		stm32mp_syscfg_write(CA35SS_SSC_CHGCLKREQ,
 				     0U,
-				     A35SS_SSC_CHGCLKREQ_ARM_DIVSEL);
+				     CA35SS_SSC_CHGCLKREQ_ARM_DIVSEL);
 		timeout = timeout_init_us(CLKSRC_TIMEOUT);
 		while (!timeout_elapsed(timeout))
-			if (!(stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-			      A35SS_SSC_CHGCLKREQ_ARM_DIVSELACK))
+			if (!(stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+			      CA35SS_SSC_CHGCLKREQ_ARM_DIVSELACK))
 				break;
-		if (stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-		    A35SS_SSC_CHGCLKREQ_ARM_DIVSELACK)
+		if (stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+		    CA35SS_SSC_CHGCLKREQ_ARM_DIVSELACK)
 			panic("Cannot set div on A35 bypass clock");
 	}
 
-	stm32mp_syscfg_write(A35SS_SSC_CHGCLKREQ,
-			     A35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ_EN,
-			     A35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ_MASK);
+	stm32mp_syscfg_write(CA35SS_SSC_CHGCLKREQ,
+			     CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ,
+			     CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ_MASK);
 
 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
 	while (!timeout_elapsed(timeout))
-		if (stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-		    A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK)
+		if (stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+		    CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK)
 			break;
 
-	if (!(stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-	      A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK))
+	if (!(stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+	      CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK))
 		panic("Cannot switch A35 to bypass clock");
 
-	stm32mp_syscfg_write(A35SS_SSC_PLL_EN,
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_EN,
 			     0,
-			     A35SS_SSC_PLL_ENABLE_NRESET_SWPLL_FF_MASK);
+			     CA35SS_SSC_PLL_EN_NRESET_SWPLL_MASK);
 }
 
 static void stm32mp2_clk_xbar_on_hsi(struct clk_stm32_priv *priv)
@@ -1732,42 +1734,42 @@ static int stm32mp2_a35_pll1_start(void)
 {
 	uint64_t timeout = 0;
 
-	stm32mp_syscfg_write(A35SS_SSC_PLL_EN,
-			     A35SS_SSC_PLL_ENABLE_PD_EN,
-			     A35SS_SSC_PLL_ENABLE_PD_EN);
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_EN,
+			     CA35SS_SSC_PLL_EN_PLL_EN,
+			     CA35SS_SSC_PLL_EN_PLL_EN);
 
 	/* Wait PLL lock */
 	timeout = timeout_init_us(PLLRDY_TIMEOUT);
 	while (!timeout_elapsed(timeout))
-		if (stm32mp_syscfg_read(A35SS_SSC_PLL_EN) &
-		    A35SS_SSC_PLL_ENABLE_LOCKP_MASK)
+		if (stm32mp_syscfg_read(CA35SS_SSC_PLL_EN) &
+		    CA35SS_SSC_PLL_EN_LOCKP_MASK)
 			break;
 
-	if (!(stm32mp_syscfg_read(A35SS_SSC_PLL_EN) &
-	      A35SS_SSC_PLL_ENABLE_LOCKP_MASK)) {
+	if (!(stm32mp_syscfg_read(CA35SS_SSC_PLL_EN) &
+	      CA35SS_SSC_PLL_EN_LOCKP_MASK)) {
 		EMSG("PLL1 not locked");
 		return -1;
 	}
 
 	/* De-assert reset on PLL output clock path */
-	stm32mp_syscfg_write(A35SS_SSC_PLL_EN,
-			     A35SS_SSC_PLL_ENABLE_NRESET_SWPLL_FF_EN,
-			     A35SS_SSC_PLL_ENABLE_NRESET_SWPLL_FF_MASK);
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_EN,
+			     CA35SS_SSC_PLL_EN_NRESET_SWPLL,
+			     CA35SS_SSC_PLL_EN_NRESET_SWPLL_MASK);
 
 	/* Switch CPU clock to PLL clock */
-	stm32mp_syscfg_write(A35SS_SSC_CHGCLKREQ,
+	stm32mp_syscfg_write(CA35SS_SSC_CHGCLKREQ,
 			     0,
-			     A35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ_MASK);
+			     CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKREQ_MASK);
 
 	/* Wait for clock change acknowledge */
 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
 	while (!timeout_elapsed(timeout))
-		if (!(stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-		      A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK))
+		if (!(stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+		      CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK))
 			break;
 
-	if (stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ) &
-	    A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) {
+	if (stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ) &
+	    CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) {
 		EMSG("A35 switch to PLL1 failed");
 		return -1;
 	}
@@ -1778,18 +1780,18 @@ static int stm32mp2_a35_pll1_start(void)
 static void stm32mp2_a35_pll1_config(uint32_t fbdiv, uint32_t refdiv,
 				     uint32_t postdiv1, uint32_t postdiv2)
 {
-	stm32mp_syscfg_write(A35SS_SSC_PLL_FREQ1,
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_FREQ1,
 			     SHIFT_U32(refdiv,
-				       A35SS_SSC_PLL_FREQ1_REFDIV_SHIFT) |
-			     SHIFT_U32(fbdiv, A35SS_SSC_PLL_FREQ1_FBDIV_SHIFT),
-			     A35SS_SSC_PLL_FREQ1_MASK);
+				       CA35SS_SSC_PLL_FREQ1_REFDIV_SHIFT) |
+			     SHIFT_U32(fbdiv, CA35SS_SSC_PLL_FREQ1_FBDIV_SHIFT),
+			     CA35SS_SSC_PLL_FREQ1_MASK);
 
-	stm32mp_syscfg_write(A35SS_SSC_PLL_FREQ2,
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_FREQ2,
 			     SHIFT_U32(postdiv1,
-				       A35SS_SSC_PLL_FREQ2_POSTDIV1_SHIFT) |
+				       CA35SS_SSC_PLL_FREQ2_POSTDIV1_SHIFT) |
 			     SHIFT_U32(postdiv2,
-				       A35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT),
-			     A35SS_SSC_PLL_FREQ2_MASK);
+				       CA35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT),
+			     CA35SS_SSC_PLL_FREQ2_MASK);
 }
 
 static int clk_stm32_pll_config_output(struct clk_stm32_priv *priv,
@@ -2648,17 +2650,17 @@ struct clk_stm32_pll_cfg {
 
 static unsigned long clk_get_pll1_fvco_rate(unsigned long refclk)
 {
-	uint32_t reg = stm32mp_syscfg_read(A35SS_SSC_PLL_FREQ1);
+	uint32_t reg = stm32mp_syscfg_read(CA35SS_SSC_PLL_FREQ1);
 	uint32_t fbdiv = 0U;
 	uint32_t refdiv = 0U;
 	unsigned long freq = 0UL;
 	bool res = false;
 
-	fbdiv = (reg & A35SS_SSC_PLL_FREQ1_FBDIV_MASK) >>
-		A35SS_SSC_PLL_FREQ1_FBDIV_SHIFT;
+	fbdiv = (reg & CA35SS_SSC_PLL_FREQ1_FBDIV_MASK) >>
+		CA35SS_SSC_PLL_FREQ1_FBDIV_SHIFT;
 
-	refdiv = (reg & A35SS_SSC_PLL_FREQ1_REFDIV_MASK) >>
-		 A35SS_SSC_PLL_FREQ1_REFDIV_SHIFT;
+	refdiv = (reg & CA35SS_SSC_PLL_FREQ1_REFDIV_MASK) >>
+		 CA35SS_SSC_PLL_FREQ1_REFDIV_SHIFT;
 
 	res = MUL_OVERFLOW(refclk, fbdiv, &freq);
 	if (res)
@@ -2672,16 +2674,16 @@ static unsigned long clk_get_pll1_fvco_rate(unsigned long refclk)
 static unsigned long clk_stm32_pll1_get_rate(struct clk *clk __unused,
 					     unsigned long prate)
 {
-	uint32_t reg = stm32mp_syscfg_read(A35SS_SSC_PLL_FREQ2);
+	uint32_t reg = stm32mp_syscfg_read(CA35SS_SSC_PLL_FREQ2);
 	unsigned long dfout = 0UL;
 	uint32_t postdiv1 = 0U;
 	uint32_t postdiv2 = 0U;
 
-	postdiv1 = (reg & A35SS_SSC_PLL_FREQ2_POSTDIV1_MASK) >>
-		   A35SS_SSC_PLL_FREQ2_POSTDIV1_SHIFT;
+	postdiv1 = (reg & CA35SS_SSC_PLL_FREQ2_POSTDIV1_MASK) >>
+		   CA35SS_SSC_PLL_FREQ2_POSTDIV1_SHIFT;
 
-	postdiv2 = (reg & A35SS_SSC_PLL_FREQ2_POSTDIV2_MASK) >>
-		   A35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT;
+	postdiv2 = (reg & CA35SS_SSC_PLL_FREQ2_POSTDIV2_MASK) >>
+		   CA35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT;
 
 	if (postdiv1 == 0U || postdiv2 == 0U)
 		dfout = prate;
@@ -3273,10 +3275,19 @@ static const struct clk_ops clk_stm32_flexgen_ops = {
 
 static size_t clk_cpu1_get_parent(struct clk *clk __unused)
 {
-	uint32_t reg = stm32mp_syscfg_read(A35SS_SSC_CHGCLKREQ);
+	uint32_t reg = stm32mp_syscfg_read(CA35SS_SSC_CHGCLKREQ);
 
-	return (reg & A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) >>
-		A35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_SHIFT;
+	return (reg & CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_MASK) >>
+		CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_SHIFT;
+}
+
+static TEE_Result clk_cpu1_set_parent(struct clk *clk __unused, size_t pidx)
+{
+	if (pidx == 1)
+		stm32mp2_a35_ss_on_bypass();
+	/* For other pidx switch to parent is managed in PLL1 set rate */
+
+	return TEE_SUCCESS;
 }
 
 static TEE_Result clk_cpu1_determine_rate(struct clk *clk,
@@ -3318,6 +3329,7 @@ static TEE_Result clk_cpu1_set_rate(struct clk *clk __unused,
 static const struct clk_ops clk_stm32_cpu1_ops = {
 	.determine_rate = clk_cpu1_determine_rate,
 	.set_rate	= clk_cpu1_set_rate,
+	.set_parent	= clk_cpu1_set_parent,
 	.get_parent	= clk_cpu1_get_parent,
 };
 
@@ -3384,25 +3396,6 @@ static void __maybe_unused clk_stm32_rif_gate_pm_restore(struct clk *clk)
 
 static const struct clk_ops clk_stm32_rif_gate_ops = {
 	.enable		= clk_stm32_rif_gate_enable,
-	.disable	= clk_stm32_rif_gate_disable,
-	.is_enabled	= clk_stm32_rif_gate_is_enabled,
-	.restore_context = clk_stm32_rif_gate_pm_restore,
-};
-
-static TEE_Result clk_stm32_rif_gate_dbg_enable(struct clk *clk __maybe_unused)
-{
-#ifdef CFG_STM32_BSEC3
-	if (!stm32_bsec_self_hosted_debug_is_enabled())
-		return TEE_ERROR_ACCESS_DENIED;
-
-	return clk_stm32_rif_gate_enable(clk);
-#else
-	return TEE_SUCCESS;
-#endif
-}
-
-static const struct clk_ops  clk_stm32_rif_gate_dbg_ops = {
-	.enable		= clk_stm32_rif_gate_dbg_enable,
 	.disable	= clk_stm32_rif_gate_disable,
 	.is_enabled	= clk_stm32_rif_gate_is_enabled,
 	.restore_context = clk_stm32_rif_gate_pm_restore,
@@ -3668,19 +3661,6 @@ static const struct clk_ops ck_timer_ops = {
 		.parents = { (_parent) },\
 	}
 
-#define RIF_GATE_DBG(_name, _parent, _flags, _gate_id, _sec_id)\
-	struct clk _name = {\
-		.ops = &clk_stm32_rif_gate_dbg_ops,\
-		.priv = &(struct clk_stm32_rif_gate_cfg) {\
-			.sec_id	= (_sec_id),\
-			.gate_id = (_gate_id),\
-		},\
-		.name = #_name,\
-		.flags = (_flags),\
-		.num_parents = 1,\
-		.parents = { (_parent) },\
-	}
-
 #define RIF_COMPOSITE(_name, _nb_parents, _parents, _flags,\
 			_gate_id, _div_id, _mux_id, _sec_id)\
 	struct clk _name = {\
@@ -3852,21 +3832,15 @@ static STM32_TIMER(ck_timg1, &ck_icn_apb1, 0, RCC_APB1DIVR, RCC_TIMG1PRER);
 static STM32_TIMER(ck_timg2, &ck_icn_apb2, 0, RCC_APB2DIVR, RCC_TIMG2PRER);
 
 /* Clocks under RCC RIF protection */
-static RIF_GATE_DBG(ck_sys_dbg, &ck_icn_apbdbg, 0, GATE_DBG,
-		    RCC_RIF_DEBUG_TRACE);
-static RIF_GATE_DBG(ck_icn_p_stm, &ck_icn_apbdbg, 0, GATE_STM,
-		    RCC_RIF_DEBUG_TRACE);
-static RIF_GATE_DBG(ck_icn_s_stm, &ck_icn_ls_mcu, 0, GATE_STM,
-		    RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_sys_dbg, &ck_icn_apbdbg, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_icn_p_stm, &ck_icn_apbdbg, 0, GATE_STM, RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_icn_s_stm, &ck_icn_ls_mcu, 0, GATE_STM, RCC_RIF_DEBUG_TRACE);
 static RIF_GATE(ck_ker_tsdbg, &ck_flexgen_43, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
 static RIF_GATE(ck_ker_tpiu, &ck_flexgen_44, 0, GATE_TRACE,
 		RCC_RIF_DEBUG_TRACE);
-static RIF_GATE_DBG(ck_icn_p_etr, &ck_icn_apbdbg, 0, GATE_ETR,
-		    RCC_RIF_DEBUG_TRACE);
-static RIF_GATE_DBG(ck_icn_m_etr, &ck_flexgen_45, 0, GATE_ETR,
-		    RCC_RIF_DEBUG_TRACE);
-static RIF_GATE_DBG(ck_sys_atb, &ck_flexgen_45, 0, GATE_DBG,
-		    RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_icn_p_etr, &ck_icn_apbdbg, 0, GATE_ETR, RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_icn_m_etr, &ck_flexgen_45, 0, GATE_ETR, RCC_RIF_DEBUG_TRACE);
+static RIF_GATE(ck_sys_atb, &ck_flexgen_45, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
 
 static RIF_GATE(ck_icn_s_sysram, &ck_icn_hs_mcu, 0, GATE_SYSRAM,
 		RCC_RIF_SYSRAM);
@@ -4566,7 +4540,9 @@ static bool clk_stm32_clock_is_critical(struct clk *clk)
 	struct clk *clk_criticals[] = {
 #ifdef CFG_STM32_CM33TDCID
 		&ck_flexgen_63,
+#if defined(CFG_STM32MP25)
 		&ck_icn_p_gicv2m
+#endif
 #else
 		&ck_hsi,
 		&ck_hse,
@@ -4589,6 +4565,7 @@ static bool clk_stm32_clock_is_critical(struct clk *clk)
 		&ck_icn_p_ddrc,
 		&ck_icn_p_ddrcfg,
 		&ck_icn_p_ddrphyc,
+		&ck_icn_p_risaf4,
 		&ck_icn_s_sysram,
 		&ck_icn_s_bkpsram,
 		&ck_ker_fmc,
@@ -4615,7 +4592,9 @@ static bool clk_stm32_clock_is_critical(struct clk *clk)
 		&ck_icn_p_gpioz,
 		&ck_icn_p_ipcc1,
 		&ck_icn_p_ipcc2,
+#if defined(CFG_STM32MP25)
 		&ck_icn_p_gicv2m,
+#endif
 		&ck_icn_p_rtc
 #endif
 	};
@@ -4654,14 +4633,6 @@ static void clk_stm32_init_oscillators(const void *fdt, int node)
 	ck_hse_ker.parents[0] = ck_hse.parents[0];
 	ck_hsi_ker.parents[0] = ck_hsi.parents[0];
 	ck_msi_ker.parents[0] = ck_msi.parents[0];
-}
-
-static TEE_Result clk_stm32_apply_rcc_config(struct stm32_clk_platdata *pdata)
-{
-	if (pdata->safe_rst)
-		stm32mp25_syscfg_set_safe_reset(true);
-
-	return TEE_SUCCESS;
 }
 
 static unsigned long clk_stm32_clock_frequency_calculator_get_ref(void)
@@ -5127,13 +5098,21 @@ static TEE_Result stm32_rcc_pm_resume(void)
 
 static TEE_Result stm32_rcc_pm_suspend(void)
 {
-	struct stm32_clk_platdata *pdata = &stm32mp25_clock_pdata;
+	__maybe_unused struct stm32_clk_platdata *pdata = NULL;
+	TEE_Result res = TEE_ERROR_GENERIC;
 
-	clk_save_context();
+	res = clk_save_context();
+	if (res != TEE_SUCCESS)
+		return res;
+
+#ifndef CFG_STM32_CM33TDCID
+	pdata = &stm32mp25_clock_pdata;
 
 	/* Set c1msrd for bootrom use. It's reset by HW during standby */
-	io_write32(pdata->rcc_base + RCC_C1MSRDCR, pdata->c1msrd &
-		   RCC_C1MSRDCR_C1MSRD_MASK);
+	if (pdata->c1msrd != UINT32_MAX)
+		io_write32(pdata->rcc_base + RCC_C1MSRDCR, pdata->c1msrd &
+			   RCC_C1MSRDCR_C1MSRD_MASK);
+#endif
 
 	return TEE_SUCCESS;
 }
@@ -5202,9 +5181,8 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
 
 	clk_stm32_init_oscillators(fdt, node);
 
-	res = clk_stm32_apply_rcc_config(pdata);
-	if (res)
-		panic("Error when applying RCC config");
+	if (!IS_ENABLED(CFG_STM32_CM33TDCID))
+		stm32mp25_syscfg_set_safe_reset(true);
 
 	stm32mp_clk_provider_probe_final(fdt, node, priv);
 

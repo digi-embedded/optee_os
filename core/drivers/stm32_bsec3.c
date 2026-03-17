@@ -76,7 +76,7 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 /* BSEC_DENR register fields */
 #define BSEC_DENR_DBGENA		BIT(1)
 #define BSEC_DENR_NIDENA		BIT(2)
-#define BSEC_DENR_DDBGEN		BIT(3)
+#define BSEC_DENR_DEVICEEN		BIT(3)
 #define BSEC_DENR_HDPEN			BIT(4)
 #define BSEC_DENR_SPIDENA		BIT(5)
 #define BSEC_DENR_SPNIDENA		BIT(6)
@@ -88,7 +88,6 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 #define BSEC_DENR_CFGSDIS		BIT(12)
 
 /* Dummy value for ADAC emulation on BSEC_DBGMCR and BSEC_DBGACR */
-#define BSEC_DBGxCR_DUMMY_ADAC		U(0xB4B4B400)
 #define BSEC_AP_UNLOCK_DUMMY_ADAC	U(0x000000B4)
 
 #if (defined(CFG_STM32MP25) || defined(CFG_STM32MP23))
@@ -99,7 +98,7 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 #endif
 
 #if defined(CFG_STM32MP21)
-#define BSEC_DENR_ALL_MASK		GENMASK_32(17, 1)
+#define BSEC_DENR_ALL_MASK		GENMASK_32(17, 0)
 #define BSEC_DENR_WRITE_CONF		U(0xDEB00000)
 #endif /* CFG_STM32MP21 */
 
@@ -112,7 +111,7 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 				 ((PARITY_12BIT((x) & 0x78e)) << 15) | \
 				 ((PARITY_12BIT((x) & 0x66d)) << 14) | \
 				 ((PARITY_12BIT((x) & 0xd5b)) << 13) | \
-				 ((PARITY_12BIT((x) ^ 0xcb7)) << 12))
+				 ((PARITY_12BIT((x) & 0xcb7)) << 12))
 #define BSEC_DENR_v(x)		(BSEC_DENR_WRITE_CONF | BSEC_DENR_ECC(x) | \
 				 ((x) & 0xfff))
 
@@ -121,6 +120,23 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 #define BSEC_DBGxCR_UNLOCK		GENMASK_32(15, 8)
 #define BSEC_DBGxCR_AUTH_HDPL		GENMASK_32(23, 16)
 #define BSEC_DBGxCR_AUTH_SEC		GENMASK_32(31, 24)
+
+/* BSEC_AUTH register fields */
+#define BSEC_AUTH_UNLOCK_MSK		GENMASK_32(15, 8)
+#define BSEC_AUTH_UNLOCK(val)		(((val) << 8) & BSEC_AUTH_UNLOCK_MSK)
+#define BSEC_AUTH_HDPL_MSK		GENMASK_32(23, 16)
+#define BSEC_AUTH_HDPL(val)		(((val) << 16) & BSEC_AUTH_HDPL_MSK)
+#define BSEC_AUTH_SEC_MSK		GENMASK_32(31, 24)
+#define BSEC_AUTH_SEC(val)		(((val) << 24) & BSEC_AUTH_SEC_MSK)
+#define BSEC_AUTH_UNLOCKED		0xb4
+#define BSEC_AUTH_LOCKED		0xff
+#define BSEC_AUTH_HDPL0			0xb4
+#define BSEC_AUTH_HDPL1			0x51
+#define BSEC_AUTH_HDPL2			0x8a
+#define BSEC_AUTH_HDPL3			0x6f
+static const uint32_t hdpl_array[] = { BSEC_AUTH_HDPL0, BSEC_AUTH_HDPL1,
+				       BSEC_AUTH_HDPL2, BSEC_AUTH_HDPL3 };
+
 #endif /* CFG_STM32MP21 */
 
 /* BSEC_SR register fields */
@@ -156,26 +172,6 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
 /* OTP18 = BOOTROM_CONFIG_0-3: Security life-cycle word 2 */
 #define OTP_SECURE_BOOT			18U
 #define OTP_CLOSED_SECURE		GENMASK_32(3, 0)
-
-#if defined(CFG_STM32MP21)
-#define STM32MP21_PERM_MASK_A35NSTO	BIT(0) /* A35 Non-Secure Trace-only */
-#define STM32MP21_PERM_MASK_A35NSFD	BIT(1) /* A35 Non-Secure Full-Debug */
-#define STM32MP21_PERM_MASK_A35STO	BIT(2) /* A35 Secure Trace-only */
-#define STM32MP21_PERM_MASK_A35SFD	BIT(3) /* A35 Secure Full-Debug */
-#define STM32MP21_PERM_MASK_M33NSTO	BIT(4) /* M33 Non-Secure Trace-only */
-#define STM32MP21_PERM_MASK_M33NSFD	BIT(5) /* M33 Non-Secure Full-Debug */
-#define STM32MP21_PERM_MASK_M33STO	BIT(6) /* M33 Secure Trace-only */
-#define STM32MP21_PERM_MASK_M33SFD	BIT(7) /* M33 Secure Full-Debug */
-#define STM32MP21_PERM_MASK_A35HDPL	BIT(8) /* A35 Minimal Debug level */
-#define STM32MP21_PERM_MASK_A35HDP(lvl) (STM32MP21_PERM_MASK_A35HDPL << (lvl))
-#define STM32MP21_PERM_MASK_M33HDPL	BIT(12) /* M33 Minimal Debug level */
-#define STM32MP21_PERM_MASK_M33HDP(lvl) (STM32MP21_PERM_MASK_M33HDPL << (lvl))
-#define STM32MP21_PERM_MASK_A35SDDIS	BIT(16) /* A35 Secure Dbg Disabled */
-#define STM32MP21_PERM_MASK_A35NSDDIS	BIT(17) /* A35 Non-Sec Dbg Disabled */
-#define STM32MP21_PERM_MASK_M33SDDIS	BIT(18) /* M33 Secure Dbg Disabled */
-#define STM32MP21_PERM_MASK_M33NSDDIS	BIT(19) /* M33 Non-Sec Dbg Disabled */
-#define STM32MP21_PERM_MASK_WAITATTACH	BIT(31) /* Wait for attach at boot tm */
-#endif
 
 struct nvmem_cell {
 	char *name;
@@ -284,7 +280,7 @@ static TEE_Result shadow_otp(unsigned int otp)
 		bsec_dev.mirror->otp[otp].status |= PTA_BSEC_LOCK_ERROR;
 		bsec_dev.mirror->otp[otp].value = 0x0U;
 
-		return TEE_ERROR_GENERIC;
+		return TEE_ERROR_ACCESS_DENIED;
 	}
 
 	bsec_dev.mirror->otp[otp].status &= ~PTA_BSEC_LOCK_ERROR;
@@ -307,7 +303,7 @@ static TEE_Result shadow_otp(unsigned int otp)
 					   BSEC_OTPSR_DISTURBF |
 					   BSEC_OTPSR_DEDF)) {
 		bsec_dev.mirror->otp[otp].status |= PTA_BSEC_LOCK_ERROR;
-		return TEE_ERROR_GENERIC;
+		return TEE_ERROR_CORRUPT_OBJECT;
 	}
 
 	return TEE_SUCCESS;
@@ -537,6 +533,7 @@ static TEE_Result check_program_error(uint32_t otp __maybe_unused,
 TEE_Result stm32_bsec_program_otp(uint32_t val, uint32_t otp)
 {
 	TEE_Result result = TEE_ERROR_GENERIC;
+	TEE_Result shadow_res = TEE_SUCCESS;
 	unsigned int i = 0U;
 	bool value = false;
 	uint32_t exceptions = 0U;
@@ -601,19 +598,23 @@ TEE_Result stm32_bsec_program_otp(uint32_t val, uint32_t otp)
 				fvr = val;
 			}
 		} else {
-			shadow_otp(otp); /* reload the fuse word */
-			fvr = io_read32(bsec_base() + BSEC_FVR(otp));
+			shadow_res = shadow_otp(otp); /* reload the fuse word */
+			if (!shadow_res)
+				fvr = io_read32(bsec_base() + BSEC_FVR(otp));
 		}
-		if (fvr != val)
-			EMSG("BSEC shadow %"PRIu32" invalid: %08x, write= %08x",
-			     otp, fvr, val);
 
-		/* update the mirror memory if allowed */
+		if (shadow_res || fvr != val)
+			EMSG("BSEC shadow %"PRIu32" invalid: %08x, write= %08x, reload err %"PRIx32,
+			     otp, fvr, val, shadow_res);
+
 		if (!(bsec_dev.mirror->otp[otp].status &
 		      PTA_BSEC_STATUS_SECURE)) {
+			/* update the mirror memory if allowed */
 			bsec_dev.mirror->otp[otp].value = fvr;
-			bsec_dev.mirror->otp[otp].status &=
-				~PTA_BSEC_LOCK_ERROR;
+			if (!shadow_res && fvr == val) {
+				bsec_dev.mirror->otp[otp].status &=
+					~PTA_BSEC_LOCK_ERROR;
+			}
 		}
 	}
 
@@ -623,63 +624,7 @@ TEE_Result stm32_bsec_program_otp(uint32_t val, uint32_t otp)
 }
 #endif
 
-TEE_Result stm32_bsec_write_debug_conf(uint32_t val)
-{
-	TEE_Result result = TEE_ERROR_GENERIC;
-	uint32_t exceptions = 0U;
-
-	if (IS_ENABLED(CFG_STM32_CM33TDCID))
-		return TEE_ERROR_ACCESS_DENIED;
-
-	if (is_bsec_write_locked())
-		return TEE_ERROR_ACCESS_DENIED;
-
-	exceptions = bsec_lock();
-
-	if (IS_ENABLED(CFG_STM32MP21))
-		val = BSEC_DENR_v(val);
-
-	io_clrsetbits32(bsec_base() + BSEC_DENR, BSEC_DENR_ALL_MASK,
-			val | BSEC_DENR_WRITE_CONF);
-
-	if (stm32_bsec_read_debug_conf() == (val & BSEC_DENR_ALL_MASK))
-		result = TEE_SUCCESS;
-
-	bsec_unlock(exceptions);
-
-	return result;
-}
-
-uint32_t stm32_bsec_read_debug_conf(void)
-{
-	if (IS_ENABLED(CFG_STM32_CM33TDCID))
-		return 0;
-
-	return io_read32(bsec_base() + BSEC_DENR) & BSEC_DENR_ALL_MASK;
-}
-
-bool stm32_bsec_self_hosted_debug_is_enabled(void)
-{
-	if (IS_ENABLED(CFG_STM32_CM33TDCID))
-		return false;
-
-	return stm32_bsec_read_debug_conf() & BSEC_DENR_DBGSWEN;
-}
-
 #if defined(CFG_STM32MP21)
-/*
- * Dummy ADAC requires setting BSEC_DBGACR and BSEC_DBGMCR.
- */
-void stm32_bsec_mp21_dummy_adac(void)
-{
-	if (IS_ENABLED(CFG_STM32_CM33TDCID))
-		return;
-
-	io_write32(bsec_base() + BSEC_DBGACR, BSEC_DBGxCR_DUMMY_ADAC);
-	io_write32(bsec_base() + BSEC_DBGMCR, BSEC_DBGxCR_DUMMY_ADAC);
-	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
-}
-
 /*
  * DBGMCU_APB_AP is open under reset, closed immediately after SYSTEM_RST is
  * released, until AP_UNLOCKED is configured.
@@ -689,12 +634,87 @@ void stm32_bsec_mp21_ap0_unlock(void)
 	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
 }
 
-TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value)
+#endif /* CFG_STM32MP21 */
+
+static void parse_permissions(uint32_t perm_mask, uint32_t *denr_val,
+			      uint32_t *dbg_a_ctrl_val,
+			      uint32_t *dbg_m_ctrl_val)
 {
-	TEE_Result result = TEE_ERROR_BAD_STATE;
+	__maybe_unused int8_t lvl = 0;
+
+	*denr_val = 0;
+	*dbg_a_ctrl_val = 0;
+	*dbg_m_ctrl_val = 0;
+
+	/* Prepare value for BSEC debug enable register */
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSDDIS)) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSTO)
+			*denr_val |= BSEC_DENR_NIDENA;
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSFD)
+			*denr_val |= BSEC_DENR_NIDENA | BSEC_DENR_DBGENA;
+	}
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_SDDIS)) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_STO)
+			*denr_val |= BSEC_DENR_SPNIDENA;
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_SFD)
+			*denr_val |= BSEC_DENR_SPNIDENA | BSEC_DENR_SPIDENA;
+	}
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_M_NSDDIS)) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_M_NSTO)
+			*denr_val |= BSEC_DENR_NIDENM;
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_M_NSFD)
+			*denr_val |= BSEC_DENR_NIDENM | BSEC_DENR_DBGENM;
+	}
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_M_SDDIS)) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_M_STO)
+			*denr_val |= BSEC_DENR_SPNIDENM;
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_M_SFD)
+			*denr_val |= BSEC_DENR_SPNIDENM | BSEC_DENR_SPIDENM;
+	}
+
+	if (*denr_val != 0)
+		*denr_val |= BSEC_DENR_DEVICEEN | BSEC_DENR_HDPEN |
+			     BSEC_DENR_DBGSWEN | BSEC_DENR_WRITE_CONF;
+
+#ifdef CFG_STM32MP21
+	if (*denr_val != 0)
+		*denr_val = BSEC_DENR_v(*denr_val);
+
+	/* Prepare values for BSEC debug control registers */
+	for (lvl = ARRAY_SIZE(hdpl_array) - 1; lvl >= 0; lvl--) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_HDP(lvl)) {
+			*dbg_a_ctrl_val |= BSEC_AUTH_HDPL(hdpl_array[lvl]);
+			break;
+		}
+	}
+	for (lvl = ARRAY_SIZE(hdpl_array) - 1; lvl >= 0; lvl--) {
+		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_M_HDP(lvl)) {
+			*dbg_m_ctrl_val |= BSEC_AUTH_HDPL(hdpl_array[lvl]);
+			break;
+		}
+	}
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSDDIS))
+		*dbg_a_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_SDDIS))
+		*dbg_a_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_M_NSDDIS))
+		*dbg_m_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
+	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_M_SDDIS))
+		*dbg_m_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
+#endif /* CFG_STM32MP21 */
+
+	/* TODO: STM32_BSEC_DEBUG_WAITATTACH */
+}
+
+TEE_Result stm32_bsec_write_debug_conf(uint32_t perm_mask)
+{
+	TEE_Result result = TEE_SUCCESS;
+	__maybe_unused uint32_t dbgacr_chk = 0U;
+	__maybe_unused uint32_t dbgmcr_chk = 0U;
 	uint32_t exceptions = 0U;
-	uint32_t ca_chk = 0;
-	uint32_t cm_chk = 0;
+	uint32_t dbgacr = 0U;
+	uint32_t dbgmcr = 0U;
+	uint32_t denr = 0U;
 
 	if (IS_ENABLED(CFG_STM32_CM33TDCID))
 		return TEE_ERROR_ACCESS_DENIED;
@@ -702,79 +722,145 @@ TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value)
 	if (is_bsec_write_locked())
 		return TEE_ERROR_ACCESS_DENIED;
 
+	parse_permissions(perm_mask, &denr, &dbgacr, &dbgmcr);
+
 	exceptions = bsec_lock();
 
-	io_write32(bsec_base() + BSEC_DBGACR, ca_value);
-	io_write32(bsec_base() + BSEC_DBGMCR, cm_value);
+	io_write32(bsec_base() + BSEC_DENR, denr);
 
-	ca_chk = io_read32(bsec_base() + BSEC_DBGACR);
-	cm_chk = io_read32(bsec_base() + BSEC_DBGMCR);
+	if (io_read32(bsec_base() + BSEC_DENR) != denr)
+		result = TEE_ERROR_GENERIC;
 
-	if (ca_chk == ca_value && cm_chk == cm_value)
-		result = TEE_SUCCESS;
+#ifdef CFG_STM32MP21
+	io_write32(bsec_base() + BSEC_DBGACR, dbgacr);
+	io_write32(bsec_base() + BSEC_DBGMCR, dbgmcr);
 
+	dbgacr_chk = io_read32(bsec_base() + BSEC_DBGACR);
+	dbgmcr_chk = io_read32(bsec_base() + BSEC_DBGMCR);
+
+	if (dbgacr_chk != dbgacr || dbgmcr_chk != dbgmcr)
+		result = TEE_ERROR_GENERIC;
+#endif /* CFG_STM32MP21 */
 	bsec_unlock(exceptions);
 
 	return result;
 }
 
-void stm32_bsec_parse_permissions(uint32_t perm_mask,
-				  uint32_t *dbg_en_val,
-				  uint32_t *dbg_a_ctrl_val,
-				  uint32_t *dbg_m_ctrl_val)
+static uint32_t parse_denr(uint32_t denr)
 {
-	uint32_t hdpl_values[] = { BSEC_AUTH_HDPL0, BSEC_AUTH_HDPL1,
-				   BSEC_AUTH_HDPL2, BSEC_AUTH_HDPL3 };
-	int8_t lvl = ARRAY_SIZE(hdpl_values) - 1;
+	uint32_t perm_mask = 0U;
+	__maybe_unused uint32_t dbgacr = 0U;
+	__maybe_unused uint32_t dbgmcr = 0U;
+	__maybe_unused uint32_t dbgacr_hdpl = 0U;
+	__maybe_unused uint32_t dbgmcr_hdpl = 0U;
 
-	*dbg_en_val = 0;
-	*dbg_a_ctrl_val = 0;
-	*dbg_m_ctrl_val = 0;
+	if ((denr & (BSEC_DENR_DEVICEEN | BSEC_DENR_HDPEN |
+		     BSEC_DENR_DBGSWEN)) !=
+	    (BSEC_DENR_DEVICEEN | BSEC_DENR_HDPEN | BSEC_DENR_DBGSWEN))
+		return 0U;
 
-	/* Prepare value for BSEC debug enable register */
-	*dbg_en_val |= BSEC_DEVICEEN | BSEC_HDPEN | BSEC_DBGSWEN;
-	if (perm_mask & STM32MP21_PERM_MASK_A35NSTO)
-		*dbg_en_val |= BSEC_NIDENA;
-	if (perm_mask & STM32MP21_PERM_MASK_A35NSFD)
-		*dbg_en_val |= BSEC_NIDENA | BSEC_DBGENA;
-	if (perm_mask & STM32MP21_PERM_MASK_A35STO)
-		*dbg_en_val |= BSEC_SPNIDENA;
-	if (perm_mask & STM32MP21_PERM_MASK_A35SFD)
-		*dbg_en_val |= BSEC_SPNIDENA | BSEC_SPIDENA;
-	if (perm_mask & STM32MP21_PERM_MASK_M33NSTO)
-		*dbg_en_val |= BSEC_NIDENM;
-	if (perm_mask & STM32MP21_PERM_MASK_M33NSFD)
-		*dbg_en_val |= BSEC_NIDENM | BSEC_DBGENM;
-	if (perm_mask & STM32MP21_PERM_MASK_M33STO)
-		*dbg_en_val |= BSEC_SPNIDENM;
-	if (perm_mask & STM32MP21_PERM_MASK_M33SFD)
-		*dbg_en_val |= BSEC_SPNIDENM | BSEC_SPIDENM;
+	if (denr & BSEC_DENR_NIDENA)
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_NSTO;
+	if ((denr & (BSEC_DENR_NIDENA | BSEC_DENR_DBGENA)) ==
+	    (BSEC_DENR_NIDENA | BSEC_DENR_DBGENA))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_NSFD;
 
-	/* Prepare values for BSEC debug control registers */
-	for (lvl = ARRAY_SIZE(hdpl_values) - 1; lvl >= 0; lvl--) {
-		if (perm_mask & STM32MP21_PERM_MASK_A35HDP(lvl)) {
-			*dbg_a_ctrl_val |= BSEC_AUTH_HDPL(hdpl_values[lvl]);
+	if (denr & BSEC_DENR_SPNIDENA)
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_STO;
+	if ((denr & (BSEC_DENR_SPNIDENA | BSEC_DENR_SPIDENA)) ==
+	    (BSEC_DENR_SPNIDENA | BSEC_DENR_SPIDENA))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_SFD;
+
+	if (denr & BSEC_DENR_NIDENM)
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_NSTO;
+	if ((denr & (BSEC_DENR_NIDENM | BSEC_DENR_DBGENM)) ==
+	    (BSEC_DENR_NIDENM | BSEC_DENR_DBGENM))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_NSFD;
+
+	if (denr & BSEC_DENR_SPNIDENM)
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_STO;
+	if ((denr & (BSEC_DENR_SPNIDENM | BSEC_DENR_SPIDENM)) ==
+	    (BSEC_DENR_SPNIDENM | BSEC_DENR_SPIDENM))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_SFD;
+
+#ifdef CFG_STM32MP21
+	dbgacr = io_read32(bsec_base() + BSEC_DBGACR);
+	dbgmcr = io_read32(bsec_base() + BSEC_DBGMCR);
+
+	dbgacr_hdpl = dbgacr & BSEC_AUTH_HDPL_MSK;
+	for (int lvl = ARRAY_SIZE(hdpl_array) - 1; lvl >= 0 ; lvl--) {
+		if (dbgacr_hdpl == BSEC_AUTH_HDPL(hdpl_array[lvl])) {
+			perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_HDP(lvl);
 			break;
 		}
 	}
-	for (lvl = ARRAY_SIZE(hdpl_values) - 1; lvl >= 0; lvl--) {
-		if (perm_mask & STM32MP21_PERM_MASK_M33HDP(lvl)) {
-			*dbg_m_ctrl_val |= BSEC_AUTH_HDPL(hdpl_values[lvl]);
+
+	dbgmcr_hdpl = dbgmcr & BSEC_AUTH_HDPL_MSK;
+	for (int lvl = ARRAY_SIZE(hdpl_array) - 1; lvl >= 0 ; lvl--) {
+		if (dbgmcr_hdpl == BSEC_AUTH_HDPL(hdpl_array[lvl])) {
+			perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_HDP(lvl);
 			break;
 		}
 	}
-	if (!(perm_mask & STM32MP21_PERM_MASK_A35NSDDIS))
-		*dbg_a_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
-	if (!(perm_mask & STM32MP21_PERM_MASK_A35SDDIS))
-		*dbg_a_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
-	if (!(perm_mask & STM32MP21_PERM_MASK_M33NSDDIS))
-		*dbg_m_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
-	if (!(perm_mask & STM32MP21_PERM_MASK_M33SDDIS))
-		*dbg_m_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
 
-	/* TODO: STM32MP21_PERM_MASK_WAITATTACH */
-}
+	if ((dbgacr & BSEC_AUTH_UNLOCK_MSK) !=
+	    BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_NSDDIS;
+	if ((dbgacr & BSEC_AUTH_SEC_MSK) != BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_A_SDDIS;
+
+	if ((dbgmcr & BSEC_AUTH_UNLOCK_MSK) !=
+	     BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_NSDDIS;
+	if ((dbgmcr & BSEC_AUTH_SEC_MSK) != BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED))
+		perm_mask |= STM32_BSEC_DEBUG_CORTEX_M_SDDIS;
+
 #endif /* CFG_STM32MP21 */
+
+	return perm_mask;
+}
+
+uint32_t stm32_bsec_read_debug_conf(void)
+{
+	uint32_t denr = 0U;
+
+	if (IS_ENABLED(CFG_STM32_CM33TDCID))
+		return 0;
+
+	denr = io_read32(bsec_base() + BSEC_DENR) & BSEC_DENR_ALL_MASK;
+
+	return parse_denr(denr);
+}
+
+bool stm32_bsec_self_hosted_debug_is_enabled(void)
+{
+	if (IS_ENABLED(CFG_STM32_CM33TDCID))
+		return false;
+
+	return io_read32(bsec_base() + BSEC_DENR) & BSEC_DENR_DBGSWEN;
+}
+
+bool stm32_bsec_hdp_is_enabled(void)
+{
+	if (IS_ENABLED(CFG_STM32_CM33TDCID))
+		return false;
+
+	return io_read32(bsec_base() + BSEC_DENR) & BSEC_DENR_HDPEN;
+}
+
+bool stm32_bsec_coresight_is_enabled(void)
+{
+	uint32_t denr = 0U;
+	uint32_t coresight_mask = BSEC_DENR_DBGENA | BSEC_DENR_DEVICEEN |
+				  BSEC_DENR_DBGSWEN;
+
+	if (IS_ENABLED(CFG_STM32_CM33TDCID))
+		return false;
+
+	denr = io_read32(bsec_base() + BSEC_DENR);
+
+	return (denr & coresight_mask) == coresight_mask;
+}
 
 /*
  * bsec_get_version: return BSEC version.

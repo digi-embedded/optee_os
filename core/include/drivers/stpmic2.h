@@ -287,7 +287,7 @@ enum {
 #define FS_OCP_LDO8		BIT(7)
 
 /* NVM_BUCK1_VOUT_SHR */
-#define BUCK1_VRAN_GE_CFG	BIT(7)
+#define BUCK1_VRANGE_CFG	BIT(7)
 
 enum stpmic2_prop_id {
 	STPMIC2_MASK_RESET = 0,
@@ -380,6 +380,8 @@ TEE_Result plat_pmic2_supplied_init(struct regulator *regulator);
 TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator,
 				      uint8_t mode);
 
+TEE_Result stm32_pmic2_suspend_regulator(struct regulator *regulator,
+					 uint8_t mode);
 TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator);
 
 #endif /*__DRIVERS_STPMIC2_H*/

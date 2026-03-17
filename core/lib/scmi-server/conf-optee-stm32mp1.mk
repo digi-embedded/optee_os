@@ -19,8 +19,11 @@ $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
 $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
 endif
 
-# Info level is sufficient for scp-firmware
+ifeq (,$(filter 0 1 2,$(CFG_TEE_CORE_LOG_LEVEL)))
+# For OP-TEE TRACE >= DEBUG (3), the scp-firmware Info(1) level is sufficient
+# and for lower mode, the default value is defined in scmi-server/conf.mk
 CFG_SCPFW_LOG_LEVEL ?= 1
+endif
 
 $(call force,CFG_SCPFW_NOTIFICATION,n)
 $(call force,CFG_SCPFW_FAST_CHANNEL,n)

@@ -1049,7 +1049,7 @@ static int scmi_pd_init(fwk_id_t module_id, unsigned int element_count,
 
     scmi_pd_ctx.domain_count =
         (unsigned int)fwk_module_get_element_count(fwk_module_id_power_domain);
-    if (scmi_pd_ctx.domain_count <= 1) {
+    if (scmi_pd_ctx.domain_count < 1) {
         return FWK_E_SUPPORT;
     }
 

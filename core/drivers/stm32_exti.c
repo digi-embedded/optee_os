@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: BSD-2-Clause
 /*
- * Copyright (c) 2021-2023, STMicroelectronics
+ * Copyright (c) 2021-2025, STMicroelectronics
  */
 
 #include <drivers/stm32_rif.h>
@@ -14,24 +14,23 @@
 #include <kernel/spinlock.h>
 #include <libfdt.h>
 #include <mm/core_memprot.h>
-#include <sys/queue.h>
 #include <tee_api_types.h>
 #include <util.h>
 
 /* Registers */
-#define _EXTI_RTSR(n)		(0x000U + (n) * 0x20U)
-#define _EXTI_FTSR(n)		(0x004U + (n) * 0x20U)
-#define _EXTI_RPR(n)		(0x00cU + (n) * 0x20U)
-#define _EXTI_FPR(n)		(0x010U + (n) * 0x20U)
-#define _EXTI_SECCFGR(n)	(0x014U + (n) * 0x20U)
-#define _EXTI_PRIVCFGR(n)	(0x018U + (n) * 0x20U)
-#define _EXTI_CR(n)		(0x060U + (n) * 4U)
-#define _EXTI_LOCKR		0x070U
-#define _EXTI_C1IMR(n)		(0x080U + (n) * 0x10U)
-#define _EXTI_EnCIDCFGR(n)	(0x180U + (n) * 4U)
-#define _EXTI_CmCIDCFGR(n)	(0x300U + (n) * 4U)
-#define _EXTI_TRG(n)		(0x3ecU - (n) * 4U) /* HWCFGR2 .. HWCFGR4 */
-#define _EXTI_HWCFGR1		0x3f0U
+#define _EXTI_RTSR(n)			(0x000U + (n) * 0x20U)
+#define _EXTI_FTSR(n)			(0x004U + (n) * 0x20U)
+#define _EXTI_RPR(n)			(0x00cU + (n) * 0x20U)
+#define _EXTI_FPR(n)			(0x010U + (n) * 0x20U)
+#define _EXTI_SECCFGR(n)		(0x014U + (n) * 0x20U)
+#define _EXTI_PRIVCFGR(n)		(0x018U + (n) * 0x20U)
+#define _EXTI_CR(n)			(0x060U + (n) * 4U)
+#define _EXTI_LOCKR			0x070U
+#define _EXTI_C1IMR(n)			(0x080U + (n) * 0x10U)
+#define _EXTI_EnCIDCFGR(n)		(0x180U + (n) * 4U)
+#define _EXTI_CmCIDCFGR(n)		(0x300U + (n) * 4U)
+#define _EXTI_TRG(n)			(0x3ecU - (n) * 4U) /* HWCFGR2..4 */
+#define _EXTI_HWCFGR1			0x3f0U
 
 /* SECCFGR register bitfields */
 #define _EXTI_SECCFGR_MASK		GENMASK_32(31, 0)
@@ -43,8 +42,10 @@
 #define _EXTI_LOCKR_GLOCK		BIT(0)
 
 /* CIDCFGR register bitfields */
+#define _EXTI_CIDCFGR_CFEN		BIT(0)
 #define _EXTI_CIDCFGR_SCID_MASK		GENMASK_32(6, 4)
-#define _EXTI_CIDCFGR_CONF_MASK		(_CIDCFGR_CFEN | \
+#define _EXTI_CIDCFGR_SCID_SHIFT	4U
+#define _EXTI_CIDCFGR_CONF_MASK		(_EXTI_CIDCFGR_CFEN | \
 					 _EXTI_CIDCFGR_SCID_MASK)
 
 /* _EXTI_HWCFGR1 bit fields */
@@ -55,13 +56,15 @@
 #define _EXTI_HWCFGR1_CIDWIDTH_MASK	GENMASK_32(27, 24)
 #define _EXTI_HWCFGR1_CIDWIDTH_SHIFT	24U
 
-#define _EXTI_MAX_CR		4U
-#define _EXTI_BANK_NR		3U
-#define _EXTI_LINES_PER_BANK	32U
+#define _EXTI_MAX_CR			4U
+#define _EXTI_BANK_NR			3U
+#define _EXTI_LINES_PER_BANK		32U
+
+#define _EXTI_CID1			0x1U
 
 /*
  * struct stm32_exti_itr_hierarchy - EXTI line interrupt hierarchy
- * @this: An EXIT interrupt number and its EXTI interrupt controller
+ * @this: An EXTI interrupt number and its EXTI interrupt controller
  * @parent: The interrupt (number and controller) that drives the interrupt
  */
 struct stm32_exti_itr_hierarchy {
@@ -89,8 +92,6 @@ struct stm32_exti_pdata {
 	struct stm32_exti_itr_hierarchy *
 		hierarchy[_EXTI_LINES_PER_BANK * _EXTI_BANK_NR];
 
-	SLIST_ENTRY(stm32_exti_pdata) link;
-
 	bool glock;
 };
 
@@ -100,20 +101,18 @@ itr_chip_to_stm32_exti_pdata(struct itr_chip *chip)
 	return container_of(chip, struct stm32_exti_pdata, chip);
 }
 
-static uint32_t stm32_exti_get_bank(uint32_t exti_line)
+static unsigned int stm32_exti_get_bank(uint32_t exti_line)
 {
-	uint32_t bank = 0;
-
 	if (exti_line < _EXTI_LINES_PER_BANK)
-		bank = 0;
-	else if (exti_line < 2 * _EXTI_LINES_PER_BANK)
-		bank = 1;
-	else if (exti_line < 3 * _EXTI_LINES_PER_BANK)
-		bank = 2;
-	else
-		panic();
+		return 0;
 
-	return bank;
+	if (exti_line < 2 * _EXTI_LINES_PER_BANK)
+		return 1;
+
+	if (exti_line < 3 * _EXTI_LINES_PER_BANK)
+		return 2;
+
+	panic();
 }
 
 static inline uint32_t stm32_exti_maxcid(const struct stm32_exti_pdata *exti)
@@ -153,11 +152,11 @@ stm32_exti_event_is_configurable(const struct stm32_exti_pdata *exti,
 static void stm32_exti_set_type(struct stm32_exti_pdata *exti,
 				uint32_t exti_line, uint32_t type)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t r_trig = 0;
 	uint32_t f_trig = 0;
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
 
 	switch (type) {
 	case IRQ_TYPE_EDGE_RISING:
@@ -177,8 +176,6 @@ static void stm32_exti_set_type(struct stm32_exti_pdata *exti,
 		panic();
 	}
 
-	i = stm32_exti_get_bank(exti_line);
-
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
 	io_mask32(exti->base + _EXTI_RTSR(i), r_trig, mask);
@@ -189,11 +186,9 @@ static void stm32_exti_set_type(struct stm32_exti_pdata *exti,
 
 static void stm32_exti_mask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
@@ -206,11 +201,9 @@ static void stm32_exti_mask(struct stm32_exti_pdata *exti, uint32_t exti_line)
 static void stm32_exti_unmask(struct stm32_exti_pdata *exti,
 			      uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
@@ -223,11 +216,9 @@ static void stm32_exti_unmask(struct stm32_exti_pdata *exti,
 static void stm32_exti_enable_wake(struct stm32_exti_pdata *exti,
 				   uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
@@ -239,11 +230,9 @@ static void stm32_exti_enable_wake(struct stm32_exti_pdata *exti,
 static void stm32_exti_disable_wake(struct stm32_exti_pdata *exti,
 				    uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
@@ -254,16 +243,14 @@ static void stm32_exti_disable_wake(struct stm32_exti_pdata *exti,
 
 static void stm32_exti_clear(struct stm32_exti_pdata *exti, uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
-	io_mask32(exti->base + _EXTI_RPR(i), mask, mask);
-	io_mask32(exti->base + _EXTI_FPR(i), mask, mask);
+	io_setbits32(exti->base + _EXTI_RPR(i), mask);
+	io_setbits32(exti->base + _EXTI_FPR(i), mask);
 
 	cpu_spin_unlock_xrestore(&exti->lock, exceptions);
 }
@@ -271,15 +258,13 @@ static void stm32_exti_clear(struct stm32_exti_pdata *exti, uint32_t exti_line)
 static void stm32_exti_set_tz(struct stm32_exti_pdata *exti,
 			      uint32_t exti_line)
 {
+	unsigned int i = stm32_exti_get_bank(exti_line);
 	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
 	uint32_t exceptions = 0;
-	unsigned int i = 0;
-
-	i = stm32_exti_get_bank(exti_line);
 
 	exceptions = cpu_spin_lock_xsave(&exti->lock);
 
-	io_mask32(exti->base + _EXTI_SECCFGR(i), mask, mask);
+	io_setbits32(exti->base + _EXTI_SECCFGR(i), mask);
 
 	cpu_spin_unlock_xrestore(&exti->lock, exceptions);
 }
@@ -408,6 +393,27 @@ static const struct itr_ops stm32_exti_ops = {
 };
 DECLARE_KEEP_PAGER(stm32_exti_ops);
 
+static TEE_Result stm32_exti_rif_check_access(struct stm32_exti_pdata *exti,
+					      uint32_t exti_line)
+{
+	unsigned int i = stm32_exti_get_bank(exti_line);
+	uint32_t mask = BIT(exti_line % _EXTI_LINES_PER_BANK);
+	uint32_t privcfgr = io_read32(exti->base + _EXTI_PRIVCFGR(i));
+	uint32_t seccfgr = io_read32(exti->base + _EXTI_SECCFGR(i));
+	uint32_t e_cids = io_read32(exti->base + _EXTI_EnCIDCFGR(exti_line));
+
+	/* only configured as secure and privileged */
+	if (!(seccfgr & privcfgr & mask))
+		return TEE_ERROR_ACCESS_DENIED;
+
+	if ((e_cids & _EXTI_CIDCFGR_CFEN) &&
+	    ((e_cids & _EXTI_CIDCFGR_SCID_MASK) !=
+	     SHIFT_U32(_EXTI_CID1, _EXTI_CIDCFGR_SCID_SHIFT)))
+		return TEE_ERROR_ACCESS_DENIED;
+
+	return TEE_SUCCESS;
+}
+
 static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
 				    const void *fdt, int node)
 {
@@ -416,6 +422,11 @@ static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
 	uint32_t rif_conf = 0;
 	unsigned int i = 0;
 	int len = 0;
+
+	exti->e_cids = calloc(stm32_exti_nbevents(exti), sizeof(uint32_t));
+	exti->c_cids = calloc(stm32_exti_nbcpus(exti), sizeof(uint32_t));
+	if (!exti->e_cids || !exti->c_cids)
+		panic("Out of memory");
 
 	if (fdt_getprop(fdt, node, "st,glocked", NULL))
 		exti->glock = true;
@@ -427,11 +438,6 @@ static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
 		DMSG("No RIF configuration available");
 		return;
 	}
-
-	exti->e_cids = calloc(stm32_exti_nbevents(exti), sizeof(uint32_t));
-	exti->c_cids = calloc(stm32_exti_nbcpus(exti), sizeof(uint32_t));
-	if (!exti->e_cids || !exti->c_cids)
-		panic("Out of memory");
 
 	conf_data.cid_confs   = exti->e_cids;
 	conf_data.sec_conf    = exti->seccfgr_cache;
@@ -459,8 +465,8 @@ static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
 		if (c_cid > stm32_exti_maxcid(exti))
 			panic("CID out of range");
 
-		exti->c_cids[pos - 1] = (c_cid << _CIDCFGR_SCID_SHIFT) |
-					_CIDCFGR_CFEN;
+		exti->c_cids[pos - 1] = SHIFT_U32(c_cid, _CIDCFGR_SCID_SHIFT) |
+					_EXTI_CIDCFGR_CFEN;
 	}
 }
 
@@ -471,9 +477,6 @@ static TEE_Result stm32_exti_rif_apply(const struct stm32_exti_pdata *exti)
 	bool is_tdcid = false;
 	uint32_t event = 0;
 	unsigned int i = 0;
-
-	if (!exti->e_cids)
-		return TEE_SUCCESS;
 
 	res = stm32_rifsc_check_tdcid(&is_tdcid);
 	if (res)
@@ -529,7 +532,7 @@ static TEE_Result stm32_exti_rif_apply(const struct stm32_exti_pdata *exti)
 				_EXTI_CIDCFGR_CONF_MASK, exti->e_cids[event]);
 	}
 	for (i = 0; i < stm32_exti_nbcpus(exti); i++) {
-		if (!(exti->c_cids[i] & _CIDCFGR_CFEN))
+		if (!(exti->c_cids[i] & _EXTI_CIDCFGR_CFEN))
 			continue;
 
 		io_clrsetbits32(exti->base + _EXTI_CmCIDCFGR(i),
@@ -583,14 +586,19 @@ static void stm32_exti_pm_suspend(struct stm32_exti_pdata *exti)
 	uint32_t base = exti->base;
 	uint32_t i = 0;
 
-	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti))
+	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti)) {
 		stm32_exti_rif_save(exti);
+	} else {
+		/* Save seccfgr registers */
+		for (i = 0; i < _EXTI_BANK_NR; i++)
+			exti->seccfgr_cache[i] =
+				io_read32(base + _EXTI_SECCFGR(i));
+	}
 
 	for (i = 0; i < _EXTI_BANK_NR; i++) {
-		/* Save ftsr, rtsr and seccfgr registers */
+		/* Save ftsr and rtsr registers */
 		exti->ftsr_cache[i] = io_read32(base + _EXTI_FTSR(i));
 		exti->rtsr_cache[i] = io_read32(base + _EXTI_RTSR(i));
-		exti->seccfgr_cache[i] = io_read32(base + _EXTI_SECCFGR(i));
 	}
 
 	/* Save EXTI port selection */
@@ -604,18 +612,23 @@ static void stm32_exti_pm_resume(struct stm32_exti_pdata *exti)
 	uint32_t i = 0;
 
 	for (i = 0; i < _EXTI_BANK_NR; i++) {
-		/* Restore ftsr, rtsr and seccfgr registers */
+		/* Restore ftsr and rtsr registers */
 		io_write32(base + _EXTI_FTSR(i), exti->ftsr_cache[i]);
 		io_write32(base + _EXTI_RTSR(i), exti->rtsr_cache[i]);
-		io_write32(base + _EXTI_SECCFGR(i), exti->seccfgr_cache[i]);
 	}
 
 	/* Restore EXTI port selection */
 	for (i = 0; i < _EXTI_MAX_CR; i++)
 		io_write32(base + _EXTI_CR(i), exti->port_sel_cache[i]);
 
-	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti))
+	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti)) {
 		stm32_exti_rif_apply(exti);
+	} else {
+		/* Restore seccfgr registers */
+		for (i = 0; i < _EXTI_BANK_NR; i++)
+			io_write32(base + _EXTI_SECCFGR(i),
+				   exti->seccfgr_cache[i]);
+	}
 }
 
 /* PM function: configure the wake_up line for OP-TEE */
@@ -664,6 +677,7 @@ stm32_exti_pm(enum pm_op op, unsigned int pm_hint,
 
 	return TEE_SUCCESS;
 }
+DECLARE_KEEP_PAGER_PM(stm32_exti_pm);
 
 static enum itr_return stm32_exti_it_handler(struct itr_handler *h)
 {
@@ -679,6 +693,7 @@ static enum itr_return stm32_exti_it_handler(struct itr_handler *h)
 
 	return ITRR_HANDLED;
 }
+DECLARE_KEEP_PAGER(stm32_exti_it_handler);
 
 /* Callback for "interrupts" and "interrupts-extended" DT node properties */
 static TEE_Result
@@ -702,6 +717,13 @@ stm32_exti_dt_get_chip_cb(struct dt_pargs *pargs, void *priv_data,
 
 	if (exti_line >= stm32_exti_nbevents(exti))
 		return TEE_ERROR_GENERIC;
+
+	/* With RIF, check the permission */
+	if (IS_ENABLED(CFG_STM32_RIF) && stm32_exti_maxcid(exti)) {
+		res = stm32_exti_rif_check_access(exti, exti_line);
+		if (res)
+			return res;
+	}
 
 	hierarchy = exti->hierarchy[exti_line];
 	if (!hierarchy) {
@@ -732,10 +754,7 @@ stm32_exti_dt_get_chip_cb(struct dt_pargs *pargs, void *priv_data,
 	if (stm32_exti_event_is_configurable(exti, exti_line))
 		stm32_exti_set_type(exti, exti_line, type);
 
-	/*
-	 * Without RIF, predate the line by setting it as secure.
-	 * TODO: with RIF, check the permission
-	 */
+	/* Without RIF, predate the line by setting it as secure */
 	if (!IS_ENABLED(CFG_STM32_RIF) || !stm32_exti_maxcid(exti))
 		stm32_exti_set_tz(exti, exti_line);
 
@@ -782,7 +801,7 @@ static TEE_Result stm32_exti_probe(const void *fdt, int node,
 	}
 
 	res = interrupt_register_provider(fdt, node, stm32_exti_dt_get_chip_cb,
-					  (void *)exti);
+					  exti);
 	if (res)
 		goto err;
 
@@ -800,7 +819,6 @@ err:
 
 static const struct dt_device_match stm32_exti_match_table[] = {
 	{ .compatible = "st,stm32mp1-exti" },
-	{ .compatible = "st,stm32mp13-exti" },
 	{ }
 };
 

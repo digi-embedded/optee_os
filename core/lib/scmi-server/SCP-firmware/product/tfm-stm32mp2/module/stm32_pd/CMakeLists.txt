@@ -31,5 +31,6 @@ target_sources(${SCP_MODULE_TARGET}
 target_link_libraries(${SCP_MODULE_TARGET}
 	PUBLIC
 		module-power-domain
+		platform_s
 		tfm_config
 )

@@ -126,9 +126,6 @@ int psa_adac_platform_check_certificate(uint8_t *crt __unused,
 int psa_adac_apply_permissions(uint8_t permissions_mask[16])
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
-	uint32_t dbg_a_ctrl_val = 0;
-	uint32_t dbg_m_ctrl_val = 0;
-	uint32_t dbg_en_val = 0;
 	uint32_t perm_mask = 0;
 
 	/* Permission mask on this platform is defined on 32 bits */
@@ -136,13 +133,7 @@ int psa_adac_apply_permissions(uint8_t permissions_mask[16])
 
 	DMSG("perm_mask=%#" PRIx32, perm_mask);
 
-	stm32_bsec_parse_permissions(perm_mask, &dbg_en_val,
-				     &dbg_a_ctrl_val, &dbg_m_ctrl_val);
-
-	res = stm32_bsec_write_debug_conf(dbg_en_val);
-	if (!res)
-		res = stm32_bsec_write_debug_ctrl(dbg_a_ctrl_val,
-						  dbg_m_ctrl_val);
+	res = stm32_bsec_write_debug_conf(perm_mask);
 
 	return (!res) ? PSA_SUCCESS : PSA_ERROR_HARDWARE_FAILURE;
 }

@@ -29,6 +29,8 @@
 #include <mod_tfm_regu_consumer.h>
 #include <mod_scmi_reset_domain.h>
 #include <mod_power_domain.h>
+#include <mod_scmi_system_power.h>
+#include <mod_system_power.h>
 #include <mod_stm32_pd.h>
 #include <scmi_agents.h>
 
@@ -43,6 +45,7 @@
 static struct mod_scmi_agent *scmi_agent_table;
 static struct mod_scmi_config scmi_data;
 static struct fwk_element *scmi_service_elt;
+static struct mod_scmi_service_config *scmi_service_data;
 
 /* SCMI channel mailbox/shmem */
 #ifdef CFG_SCPFW_MOD_MSG_SMT
@@ -157,6 +160,10 @@ static const struct fwk_element *clock_get_element_table(fwk_id_t module_id)
 
 struct fwk_module_config config_clock = {
     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(clock_get_element_table),
+    .data = &((struct mod_clock_config){
+       .pd_transition_notification_id = FWK_ID_NONE_INIT,
+       .pd_pre_transition_notification_id = FWK_ID_NONE_INIT
+    }),
 };
 
 static const struct fwk_element *tfm_clock_get_element_table(fwk_id_t module_id)
@@ -187,6 +194,11 @@ static const struct fwk_element *reset_get_element_table(fwk_id_t module_id)
 
 struct fwk_module_config config_reset_domain = {
     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(reset_get_element_table),
+    .data = &((struct mod_reset_domain_config){
+        .notification_id =
+        FWK_ID_NOTIFICATION_INIT(FWK_MODULE_IDX_RESET_DOMAIN,
+                                 MOD_RESET_DOMAIN_NOTIFICATION_AUTORESET)
+    }),
 };
 
 static const struct fwk_element *tfm_reset_get_element_table(fwk_id_t module_id)
@@ -244,8 +256,6 @@ static const uint32_t pd_allowed_state_mask_table[] = {
     [MOD_PD_STATE_ON] = MOD_PD_STATE_OFF_MASK | MOD_PD_STATE_ON_MASK,
 };
 
-static const struct mod_power_domain_config power_domain_config = { 0 };
-
 static const struct fwk_element *pd_get_element_table(fwk_id_t module_id)
 {
     return (const struct fwk_element *)pd_elt;
@@ -253,7 +263,7 @@ static const struct fwk_element *pd_get_element_table(fwk_id_t module_id)
 
 struct fwk_module_config config_power_domain = {
     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(pd_get_element_table),
-    .data = &power_domain_config,
+    .data = &((struct mod_power_domain_config){0}),
 };
 
 /* STM32 power domain module */
@@ -265,6 +275,16 @@ static const struct fwk_element *stm32_pd_get_element_table(fwk_id_t module_id)
 
 struct fwk_module_config config_stm32_pd = {
     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(stm32_pd_get_element_table),
+};
+#endif
+
+#ifdef CFG_SCPFW_MOD_SCMI_SYSTEM_POWER
+const struct fwk_module_config config_scmi_system_power = {
+    .data = &((struct mod_scmi_system_power_config){
+        .system_view = MOD_SCMI_SYSTEM_VIEW_FULL,
+        .system_suspend_state = MOD_SYSTEM_POWER_POWER_STATE_SLEEP0,
+        .alarm_id = FWK_ID_NONE_INIT
+    }),
 };
 #endif
 
@@ -304,6 +324,11 @@ static void count_resources(struct scpfw_config *cfg)
 
         scpfw_resource_counter.channel_count += agent_cfg->channel_count;
 
+#ifdef BUILD_HAS_SCMI_NOTIFICATIONS
+        /* Only Ns agent has async notification */
+        if (agent_cfg->agent_id == STM32MP25_AGENT_ID_M33_NS)
+            scpfw_resource_counter.channel_count += 1;
+#endif
         for (j = 0; j < agent_cfg->channel_count; j++) {
             struct scpfw_channel_config *channel_cfg = agent_cfg->channel_config + j;
 
@@ -408,16 +433,25 @@ static void allocate_global_resources(struct scpfw_config *cfg)
     /* <pd_count> power domains + 1 system domain + 1 empty cell */
     pd_elt = fwk_mm_calloc(scpfw_resource_counter.pd_count + 2,
                               sizeof(*pd_elt));
-    stm32_pd_elt = fwk_mm_calloc(scpfw_resource_counter.pd_count + 1,
+    stm32_pd_elt = fwk_mm_calloc(scpfw_resource_counter.pd_count + 2,
                               sizeof(*stm32_pd_elt));
 #endif
 }
+
+const static int agent_type[] = {
+    [STM32MP25_AGENT_ID_M33_NS] = SCMI_AGENT_TYPE_MANAGEMENT,
+    [STM32MP25_AGENT_ID_CA35] = SCMI_AGENT_TYPE_OSPM,
+    [STM32MP25_AGENT_ID_CA35_BL31] = SCMI_AGENT_TYPE_PSCI
+};
 
 static void set_scmi_comm_resources(struct scpfw_config *cfg)
 {
     unsigned int channel_index;
     unsigned int __maybe_unused msg_smt_index = 0, tfm_smt_index = 0;
     size_t i, j;
+    unsigned int  __maybe_unused p2a_index =
+        scpfw_resource_counter.channel_count - 1;
+
     /* @cfg does not consider agent #0 this the reserved platform/server agent */
     size_t scmi_agent_count = cfg->agent_count + 1;
 
@@ -426,6 +460,9 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
 
     scmi_service_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
                                      sizeof(*scmi_service_elt));
+
+    scmi_service_data = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
+                                      sizeof(*scmi_service_data));
 
 #ifdef CFG_SCPFW_MOD_MSG_SMT
     msg_smt_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
@@ -436,15 +473,15 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
 
 #ifdef CFG_SCPFW_MOD_TFM_SMT
     tfm_smt_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
-                                  sizeof(*tfm_smt_elt));
+                                sizeof(*tfm_smt_elt));
     tfm_smt_data = fwk_mm_calloc(scpfw_resource_counter.channel_count,
-                                   sizeof(*tfm_smt_data));
+                                 sizeof(*tfm_smt_data));
 #endif
 
     tfm_mbx_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
-                                  sizeof(*tfm_mbx_elt));
+                                sizeof(*tfm_mbx_elt));
     tfm_mbx_data = fwk_mm_calloc(scpfw_resource_counter.channel_count,
-                                   sizeof(*tfm_mbx_data));
+                                 sizeof(*tfm_mbx_data));
 
     /* Set now the uniqnue scmi module instance configuration data */
     scmi_data = (struct mod_scmi_config){
@@ -460,44 +497,66 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
         struct scpfw_agent_config *agent_cfg = cfg->agent_config + i;
         size_t agent_index = i + 1;
 
-        scmi_agent_table[agent_index].type = SCMI_AGENT_TYPE_OSPM;
+        scmi_agent_table[agent_index].type = agent_type[agent_cfg->agent_id];
         scmi_agent_table[agent_index].name = agent_cfg->name;
 
         for (j = 0; j < agent_cfg->channel_count; j++) {
-            struct scpfw_channel_config *channel_cfg = agent_cfg->channel_config + j;
+            struct scpfw_channel_config *channel_cfg =
+                agent_cfg->channel_config + j;
             struct mod_scmi_service_config *service_data;
 
-            service_data = fwk_mm_calloc(1, sizeof(*service_data));
+            service_data = scmi_service_data + channel_index;
             scmi_service_elt[channel_index].name = channel_cfg->name;
             scmi_service_elt[channel_index].data = service_data;
 
             tfm_mbx_elt[channel_index].name = channel_cfg->name;
-            tfm_mbx_elt[channel_index].data = (void *)(tfm_mbx_data + channel_index);
+            tfm_mbx_elt[channel_index].data = (void *)(tfm_mbx_data +
+                                                       channel_index);
             switch  (agent_cfg->agent_id) {
 #ifdef CFG_SCPFW_MOD_MSG_SMT
             case STM32MP25_AGENT_ID_M33_NS:
                 *service_data = (struct mod_scmi_service_config){
-                    .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
-                    .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
-                                                                  MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
+                    .transport_id = (fwk_id_t)
+                        FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                            msg_smt_index),
+                    .transport_api_id = (fwk_id_t)
+                        FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                        MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
+                    .transport_notification_init_id = FWK_ID_NONE_INIT,
                     .scmi_agent_id = agent_cfg->agent_id,
+#ifdef BUILD_HAS_SCMI_NOTIFICATIONS
+                    /*
+                     * Select the last channel as p2a channel
+                     * Only NS agent support async_notif
+                     */
+                    .scmi_p2a_id = FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_SCMI,
+                                                       p2a_index),
+#else
                     .scmi_p2a_id = FWK_ID_NONE_INIT,
+#endif
                 };
 
                 msg_smt_elt[msg_smt_index].name = channel_cfg->name;
-                msg_smt_elt[msg_smt_index].data = (void *)(msg_smt_data + msg_smt_index);
+                msg_smt_elt[msg_smt_index].data = (void *)(msg_smt_data +
+                                                           msg_smt_index);
 
-                msg_smt_data[msg_smt_index] = (struct mod_msg_smt_channel_config){
-                    .type = MOD_MSG_SMT_CHANNEL_TYPE_REQUESTER,
-                    .mailbox_size = 128,
-                    .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
-                                                               channel_index),
-                    .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
-                };
-                tfm_mbx_data[channel_index] = (struct mod_tfm_mbx_channel_config){
-                    .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
-                    .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
-                                                               MOD_MSG_SMT_API_IDX_DRIVER_INPUT),
+                msg_smt_data[msg_smt_index] =
+                    (struct mod_msg_smt_channel_config){ .type =
+                        MOD_MSG_SMT_CHANNEL_TYPE_REQUESTER,.mailbox_size = 128,
+                        .driver_id = (fwk_id_t)
+                            FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
+                                                channel_index),
+                        .driver_api_id = (fwk_id_t)
+                            FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
+                    };
+                tfm_mbx_data[channel_index] =
+                    (struct mod_tfm_mbx_channel_config){
+                    .driver_id = (fwk_id_t)
+                        FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                            msg_smt_index),
+                    .driver_api_id = (fwk_id_t)
+                        FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                        MOD_MSG_SMT_API_IDX_DRIVER_INPUT),
                 };
                 msg_smt_index++;
                 break;
@@ -506,31 +565,39 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
             case STM32MP25_AGENT_ID_CA35 :
             case STM32MP25_AGENT_ID_CA35_BL31:
                 *service_data = (struct mod_scmi_service_config){
-                    .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
-                    .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
-                                                                  MOD_TFM_SMT_API_IDX_SCMI_TRANSPORT),
+                    .transport_id = (fwk_id_t)
+                        FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT,
+                                            tfm_smt_index),
+                    .transport_api_id = (fwk_id_t)
+                        FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
+                                        MOD_TFM_SMT_API_IDX_SCMI_TRANSPORT),
+                    .transport_notification_init_id = FWK_ID_NONE_INIT,
                     .scmi_agent_id = agent_cfg->agent_id,
                     .scmi_p2a_id = FWK_ID_NONE_INIT,
                 };
 
                 tfm_smt_elt[tfm_smt_index].name = channel_cfg->name;
-                tfm_smt_elt[tfm_smt_index ].data = (void *)(tfm_smt_data + tfm_smt_index);
-
+                tfm_smt_elt[tfm_smt_index ].data = (void *)(tfm_smt_data +
+                                                            tfm_smt_index);
                 tfm_smt_data[tfm_smt_index] = (struct mod_tfm_smt_channel_config){
                     .type = MOD_TFM_SMT_CHANNEL_TYPE_REQUESTER,
-                        .policies = MOD_SMT_POLICY_NONE,
-                        .mailbox_address = (unsigned int)channel_cfg->shm.area,
-                        .mailbox_size = 128,
-                        .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
-                                                                   channel_index),
-                        .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
+                    .policies = MOD_SMT_POLICY_NONE,
+                    .mailbox_address = (unsigned int)channel_cfg->shm.area,
+                    .mailbox_size = 128,
+                    .driver_id = (fwk_id_t)
+                        FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX, channel_index),
+                    .driver_api_id = (fwk_id_t)
+                        FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
                 };
 
                 tfm_mbx_data[channel_index] =
                     (struct mod_tfm_mbx_channel_config){
-                        .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
-                        .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
-                                                                   MOD_TFM_SMT_API_IDX_DRIVER_INPUT),
+                        .driver_id = (fwk_id_t)
+                            FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT,
+                                                tfm_smt_index),
+                        .driver_api_id = (fwk_id_t)
+                            FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
+                                            MOD_TFM_SMT_API_IDX_DRIVER_INPUT),
                         .chan_mbx = channel_cfg->chan_mbx,
                     };
                 tfm_smt_index++;
@@ -543,13 +610,88 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
 
             channel_index++;
         }
+
+#if defined(CFG_SCPFW_MOD_MSG_SMT) && defined(BUILD_HAS_SCMI_NOTIFICATIONS)
+        if (agent_cfg->agent_id == STM32MP25_AGENT_ID_M33_NS) {
+            tfm_mbx_elt[p2a_index].name = "M33_NS_NOTIF";
+            tfm_mbx_elt[p2a_index].data = (void *)(tfm_mbx_data + p2a_index);
+            struct mod_scmi_service_config *service_data = scmi_service_data +
+                p2a_index;
+            scmi_service_elt[p2a_index].name = "M33_NS_NOTIF";
+            scmi_service_elt[p2a_index].data = service_data;
+
+            *service_data = (struct mod_scmi_service_config)
+            {
+                .transport_id = (fwk_id_t)
+                    FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
+                .transport_api_id = (fwk_id_t)
+                    FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                    MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
+                .transport_notification_init_id = FWK_ID_NONE_INIT,
+                .scmi_agent_id = agent_cfg->agent_id,
+                .scmi_p2a_id = FWK_ID_NONE_INIT,
+            };
+
+            msg_smt_elt[msg_smt_index].name = "M33_NS_NOTIF";
+            msg_smt_elt[msg_smt_index].data = (void *)(msg_smt_data +
+                                                       msg_smt_index);
+            msg_smt_data[msg_smt_index] = (struct mod_msg_smt_channel_config){
+                .type = MOD_MSG_SMT_CHANNEL_TYPE_COMPLETER,
+                .mailbox_size = 128,
+                .driver_id = (fwk_id_t)
+                    FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,p2a_index),
+                .driver_api_id = (fwk_id_t)
+                    FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
+            };
+
+            tfm_mbx_data[p2a_index] = (struct mod_tfm_mbx_channel_config){
+                .driver_id = (fwk_id_t)
+                    FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
+                .driver_api_id = (fwk_id_t)
+                    FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                    MOD_MSG_SMT_API_IDX_DRIVER_INPUT),
+            };
+            msg_smt_index++;
+
+            /* Array element at p2a_index is used, decrement it */
+            p2a_index--;
+        }
+#endif
     }
-};
+#if defined(BUILD_HAS_SCMI_NOTIFICATIONS)
+    fwk_assert(channel_index == p2a_index);
+#endif
+}
 
 static void set_resources(struct scpfw_config *cfg)
 {
     size_t i, j, k;
+#ifdef CFG_SCPFW_MOD_POWER_DOMAIN
+    size_t system_index = scpfw_resource_counter.pd_count; /* Last element */
+    struct fwk_element *pd_elt_sys = pd_elt + system_index;
+    struct mod_power_domain_element_config *pd_elt_data_sys =
+        fwk_mm_calloc(1, sizeof(*pd_elt_data_sys));
+    struct fwk_element *stm32_pd_elt_sys = stm32_pd_elt + system_index;
 
+    /* Data are unused but framework doesn't accept NULL data */
+    stm32_pd_elt_sys->name = "system";
+    stm32_pd_elt_sys->data = (void *)1;
+
+    pd_elt_sys->name = stm32_pd_elt_sys->name;
+
+    pd_elt_data_sys->parent_idx = PD_STATIC_DEV_IDX_NONE;
+    pd_elt_data_sys->driver_id =
+        (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_STM32_PD, system_index);
+    pd_elt_data_sys->api_id =
+        (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_STM32_PD,
+                                  MOD_STM32_PD_API_IDX_BASIC);
+    pd_elt_data_sys->attributes.pd_type = MOD_PD_TYPE_DEVICE;
+    pd_elt_data_sys->allowed_state_mask_table =
+        pd_allowed_state_mask_table;
+    pd_elt_data_sys->allowed_state_mask_table_size =
+        FWK_ARRAY_SIZE(pd_allowed_state_mask_table);
+    pd_elt_sys->data = pd_elt_data_sys;
+#endif
     for (i = 0; i < cfg->agent_count; i++) {
         struct scpfw_agent_config *agent_cfg = cfg->agent_config + i;
         size_t agent_index = i + 1;
@@ -595,7 +737,10 @@ static void set_resources(struct scpfw_config *cfg)
                                                                    clock_index),
                         .api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_CLOCK,
                                                             0),
-                        .pd_source_id = FWK_ID_NONE,
+#ifdef CFG_SCPFW_MOD_POWER_DOMAIN
+                        .pd_source_id = (fwk_id_t)
+                            FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_POWER_DOMAIN, 0),
+#endif
                     };
 
                     clock_elt[clock_index].name = clock_cfg->name;
@@ -703,38 +848,14 @@ static void set_resources(struct scpfw_config *cfg)
 #endif
 #ifdef CFG_SCPFW_MOD_POWER_DOMAIN
             if (channel_cfg->pd_count) {
-                /* System domain */
-                size_t system_index = channel_cfg->pd_count; /* Last element */
-                struct fwk_element *pd_elt_sys = pd_elt + system_index;
-                struct mod_power_domain_element_config *pd_elt_data_sys =
-                    fwk_mm_calloc(1, sizeof(*pd_elt_data_sys));
-                struct fwk_element *stm32_pd_elt_sys = stm32_pd_elt + system_index;
-
-                /* Data are unused but framework doesn't accept NULL data */
-                stm32_pd_elt_sys->name = "system";
-                stm32_pd_elt_sys->data = (void *)1;
-
-                pd_elt_sys->name = stm32_pd_elt_sys->name;
-
-                pd_elt_data_sys->parent_idx = PD_STATIC_DEV_IDX_NONE;
-                pd_elt_data_sys->driver_id =
-                    (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_STM32_PD, system_index);
-                pd_elt_data_sys->api_id =
-                    (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_STM32_PD, 0);
-                pd_elt_data_sys->attributes.pd_type = MOD_PD_TYPE_DEVICE;
-                pd_elt_data_sys->allowed_state_mask_table =
-                    pd_allowed_state_mask_table;
-                pd_elt_data_sys->allowed_state_mask_table_size =
-                    FWK_ARRAY_SIZE(pd_allowed_state_mask_table);
-                pd_elt_sys->data = pd_elt_data_sys;
-
+                size_t pd_index = scpfw_resource_counter.pd_index;
                 /* Power domains */
                 for (k = 0; k < channel_cfg->pd_count; k++) {
-                    struct fwk_element *pd_elt_k = pd_elt + k;
+                    struct fwk_element *pd_elt_k = pd_elt + pd_index;
                     struct mod_power_domain_element_config *pd_elt_data_k =
                         fwk_mm_calloc(1, sizeof(*pd_elt_data_k));
                     struct fwk_element *stm32_pd_elt_k =
-                        stm32_pd_elt + k;
+                        stm32_pd_elt + pd_index;
                     struct scmi_pd *scmi_pd = channel_cfg->pd + k;
                     struct mod_stm32_pd_config *mod_stm32_pd_config =
                         fwk_mm_calloc(1, sizeof(*mod_stm32_pd_config));
@@ -752,16 +873,21 @@ static void set_resources(struct scpfw_config *cfg)
 
                     pd_elt_data_k->parent_idx = system_index;
                     pd_elt_data_k->driver_id =
-                        (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_STM32_PD, k);
+                        (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_STM32_PD, pd_index);
                     pd_elt_data_k->api_id =
-                        (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_STM32_PD, 0);
+                        (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_STM32_PD,
+                                                  MOD_STM32_PD_API_IDX_GPU);
                     pd_elt_data_k->attributes.pd_type = MOD_PD_TYPE_DEVICE;
                     pd_elt_data_k->allowed_state_mask_table =
                         pd_allowed_state_mask_table;
                     pd_elt_data_k->allowed_state_mask_table_size =
                         FWK_ARRAY_SIZE(pd_allowed_state_mask_table);
                     pd_elt_k->data = pd_elt_data_k;
+                    pd_index++;
+
                 }
+                scpfw_resource_counter.pd_index = pd_index;
+
             }
 #endif
         }
