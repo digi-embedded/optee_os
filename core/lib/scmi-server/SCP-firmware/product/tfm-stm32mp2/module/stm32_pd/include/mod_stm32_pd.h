@@ -8,6 +8,15 @@
 #define MOD_STM32_PD_H
 
 /*!
+ * \brief API indices.
+ */
+enum mod_stm32_pd_api_idx {
+    MOD_STM32_PD_API_IDX_BASIC,
+    MOD_STM32_PD_API_IDX_GPU,
+    MOD_STM32_PD_API_IDX_COUNT
+};
+
+/*!
  * \brief Platform power domain configuration.
  */
 struct mod_stm32_pd_config {

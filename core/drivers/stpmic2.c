@@ -610,7 +610,7 @@ TEE_Result stpmic2_is_buck1_high_voltage(struct stpmic2 *pmic, bool *high)
 
 	res = stpmic2_register_read(pmic,  NVM_BUCK1_VOUT_SHR, &val);
 
-	*high = val & BUCK1_VRAN_GE_CFG;
+	*high = val & BUCK1_VRANGE_CFG;
 
 	return res;
 }

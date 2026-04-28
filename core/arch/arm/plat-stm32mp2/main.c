@@ -182,12 +182,10 @@ void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg)
 }
 
 #ifndef CFG_STM32_CM33TDCID
-#define BSEC3_DEBUG_ALL		GENMASK_32(11, 1)
 static TEE_Result init_debug(void)
 {
 	TEE_Result res = TEE_SUCCESS;
 	struct clk *dbg_clk = stm32mp_rcc_clock_id_to_clk(CK_SYSDBG);
-	struct clk *flexgen_45_clk = stm32mp_rcc_clock_id_to_clk(CK_FLEXGEN_45);
 	uint32_t state = 0;
 
 	res = stm32_bsec_get_state(&state);
@@ -200,7 +198,7 @@ static TEE_Result init_debug(void)
 		if (IS_ENABLED(CFG_INSECURE))
 			IMSG("WARNING: All debug access are allowed");
 
-		res = stm32_bsec_write_debug_conf(BSEC3_DEBUG_ALL);
+		res = stm32_bsec_write_debug_conf(STM32_BSEC_DEBUG_ALL);
 		if (res)
 			panic("Debug configuration failed");
 
@@ -216,7 +214,7 @@ static TEE_Result init_debug(void)
 		if (clk_enable(dbgmcu_clk))
 			panic("Could not enable DBGMCU clock");
 
-		stm32_bsec_mp21_dummy_adac();
+		stm32_bsec_mp21_ap0_unlock();
 
 		/*
 		 * Write a dummy value to trigger the full visibility
@@ -224,13 +222,6 @@ static TEE_Result init_debug(void)
 		 */
 		io_write32(stm32_dbgmcu_base() + DBGMCU_DBG_AUTH_DEV, 1);
 #endif
-	}
-
-	if (stm32_bsec_self_hosted_debug_is_enabled()) {
-		/* Enable flexgen 45 clock (ck_sys_atb / ck_icn_m_etr) */
-		assert(flexgen_45_clk);
-		if (clk_enable(flexgen_45_clk))
-			panic("Could not enable flexgen45 clock");
 	}
 
 	return res;

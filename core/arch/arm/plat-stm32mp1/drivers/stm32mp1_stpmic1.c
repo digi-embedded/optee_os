@@ -235,9 +235,14 @@ static void dt_get_regu_low_power_config(const void *fdt, const char *regu_name,
  */
 void stm32mp_pmic_apply_lp_config(const char *lp_state)
 {
-	unsigned int state_idx = regu_lp_state2idx(lp_state);
-	struct regu_lp_state *state = &regu_lp_state[state_idx];
+	struct regu_lp_state *state = NULL;
 	size_t i = 0;
+
+	/* If lp_state is NULL, nothing to do */
+	if (!lp_state)
+		return;
+
+	state = &regu_lp_state[regu_lp_state2idx(lp_state)];
 
 	if (stpmic1_powerctrl_on())
 		panic();
@@ -879,6 +884,13 @@ static TEE_Result stm32_pmic_init_it(const void *fdt, int node)
 		notif_register_driver(&stm32mp1_stpmic1_notif);
 
 	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+	/*
+	 * Allow to not handle interrupts.
+	 * On STM32MP15 interrupts can be handled by linux.
+	 */
+	if (IS_ENABLED(CFG_STM32MP15) && (res == TEE_ERROR_ITEM_NOT_FOUND))
+		return TEE_SUCCESS;
+
 	if (res)
 		return res;
 
@@ -961,10 +973,7 @@ static TEE_Result stm32_pmic_probe(const void *fdt, int node,
 		panic();
 	}
 
-	if (IS_ENABLED(CFG_STM32MP13))
-		res = stm32_pmic_init_it(fdt, node);
-
-	return res;
+	return stm32_pmic_init_it(fdt, node);
 }
 
 static const struct dt_device_match stm32_pmic_match_table[] = {

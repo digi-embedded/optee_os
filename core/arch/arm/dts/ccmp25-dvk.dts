@@ -57,10 +57,6 @@
 	cpu-supply = <&vddcpu>;
 };
 
-&cpu0_opp_table {
-	/delete-node/ opp-1500000000; /* Only available on STM32MP25xD/STM32MP25xF */
-};
-
 &hash {
 	status = "okay";
 };
@@ -337,8 +333,8 @@
 			};
 			ldo6: ldo6 {
 				regulator-name = "ldo6";
-				regulator-min-microvolt = <1500000>;
-				regulator-max-microvolt = <1500000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <4000000>;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-enable;
@@ -358,8 +354,8 @@
 			};
 			ldo7: ldo7 {
 				regulator-name = "ldo7";
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <4000000>;
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
 				st,pwrctrl-enable;
@@ -379,8 +375,8 @@
 			};
 			ldo8_1v8_rf: ldo8 {
 				regulator-name = "ldo8_1v8_rf";
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <3300000>;	/* Connected to VDDIO1 in SOM */
 				regulator-enable-ramp-delay = <1000>; /* Minimum of 50 us */
 				regulator-over-current-protection;
 				st,pwrctrl-sel = <3>;
@@ -450,7 +446,12 @@
 };
 
 &pwr {
-	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
+	wakeup-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>, /* WKUP1 - PA0 */
+		       <0>, /* WKUP2 - PH5 */
+		       <0>, /* WKUP3 - PG1 */
+		       <0>, /* WKUP4 - PI6 */
+		       <0>, /* WKUP5 - PG2 */
+		       <0>; /* WKUP6 - PG3 */
 	status = "okay";
 
 	vdd33ucpd: vdd33ucpd {
@@ -475,8 +476,6 @@
 
 	vddio1: vddio1 {
 		status = "okay";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
 		vddio1-supply = <&ldo8_1v8_rf>;
 	};
 
@@ -523,6 +522,12 @@
 			cfg_1 {
 				hz = <800000000>;
 				st,pll = <&pll3_cfg_800Mhz>;
+			};
+
+			/* STM32MP25xF 900 MHz, up to 150 Mtriangle/s or 900 Mpixel/s */
+			cfg_2 {
+				hz = <900000000>;
+				st,pll = <&pll3_cfg_900Mhz>;
 			};
 		};
 	};
@@ -604,6 +609,15 @@
 		tamper-gpios = <&gpioz 2 0>;
 		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
 		st,tamp-id = <3>;
+		st,trig-on; /* Set active level to HIGH for the DVK tamper button */
+	};
+
+	/* Requires interconnecting PG1 (MIKROBUS_ADC) as TMP_IN4 and PZ2 (Tamper button on the DVK) as TMP_OUT7 */
+	tamp-active {
+		status = "disabled";
+		tamper-gpios = <&gpiog 1 0>, <&gpioz 2 0>;
+		st,tamp-mode = <TAMPER_POTENTIAL_MODE>;
+		st,tamp-id = <4>, <7>;
 	};
 };
 

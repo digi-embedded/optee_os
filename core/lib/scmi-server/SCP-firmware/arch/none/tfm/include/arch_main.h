@@ -43,7 +43,18 @@ extern int scmi_get_device(unsigned int id);
  */
 extern void scmi_process_mbx_smt(unsigned int id);
 
+/*!
+ * \brief Provide message to a completer channel
+ *
+ */
 extern void scmi_process_mbx_msg(unsigned int id, void *in_buf, size_t in_size,
                                  void *out_buf, size_t *out_size);
+
+/*!
+ * \brief Provide message to a p2a channel for scmi notification support
+ *
+ */
+extern void scmi_provide_mbx_msg(unsigned int id,  void *out_buf,
+                                 size_t *out_size);
 
 #endif /* ARCH_MAIN_H */

@@ -13,10 +13,10 @@
 
 struct __attribute((packed)) mod_tfm_smt_memory {
     uint32_t reserved0;
-    uint32_t status;
+    volatile uint32_t status;
     uint64_t reserved1;
     uint32_t flags;
-    uint32_t length; /* message_header + payload */
+    volatile uint32_t length; /* message_header + payload */
     uint32_t message_header;
     uint32_t payload[];
 };

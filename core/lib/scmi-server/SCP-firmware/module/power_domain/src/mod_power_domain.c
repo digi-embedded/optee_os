@@ -1168,7 +1168,7 @@ static void process_power_state_transition_report(struct pd_ctx *pd,
     struct fwk_event notification_event = {
         .id = mod_pd_notification_id_power_state_transition,
         .response_requested = true,
-        .source_id = FWK_ID_NONE
+        .source_id = fwk_module_id_power_domain
     };
     struct mod_pd_power_state_transition_notification_params *params;
 #endif

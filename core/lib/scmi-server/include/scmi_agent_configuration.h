@@ -48,14 +48,13 @@ struct scmi_voltd {
 };
 
 /*
- * struct scmi_perfd - DVFS/performance domaindescription
+ * struct scmi_perfd - DVFS/performance domain description
  * @name: DVFS name
  * @dvfs_opp_count: Number of cells in @dvfs_opp_khz and @dvfs_opp_mv
  * @initial_opp: Initial operating point
  * @dvfs_opp_khz: Operating point frequencies in Hertz
  * @dvfs_opp_mv: Operating point voltage levels in millivolts
- * @clk: Clock used by the DVFS service
- * @regulator: Regulator used by the DVFS service
+ * @opp_id: OPP identifier
  *
  * SCP firmware configuration expects array couple @dvfs_opp_khz and
  * @dvfs_opp_mv values are ordered by increasing performance operating points.
@@ -66,8 +65,7 @@ struct scmi_perfd {
 	size_t initial_opp;
 	unsigned int *dvfs_opp_khz;
 	unsigned int *dvfs_opp_mv;
-	struct clk *clk;
-	struct regulator *regulator;
+	unsigned int opp_id;
 };
 
 struct shared_mem {

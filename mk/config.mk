@@ -1142,7 +1142,7 @@ CFG_CORE_UNSAFE_MODEXP ?= n
 # CFG_TA_MBEDTLS_UNSAFE_MODEXP, similar to CFG_CORE_UNSAFE_MODEXP,
 # when enabled, makes MBedTLS library for TAs use 'unsafe' modular
 # exponentiation algorithm.
-CFG_TA_MEBDTLS_UNSAFE_MODEXP ?= n
+CFG_TA_MBEDTLS_UNSAFE_MODEXP ?= n
 
 # CFG_RAM_CONSOLE, when enabled, stores in TA RAM all trace messages emitted
 # as soon as TA RAM memory pool is initialized. When a console driver registers,

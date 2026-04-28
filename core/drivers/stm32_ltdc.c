@@ -80,7 +80,11 @@ struct ltdc_device {
 #define ID_HWVER_40101		0x040101
 #define GCR_LTDCEN		BIT(0)
 #define LTDC_BPCR_AHBP		GENMASK_32(27, 16)
-#define LTDC_BPCR_AVBP		GENMASK_32(10, 0)
+#define LTDC_BPCR_AVBP		GENMASK_32(11, 0)
+#define LTDC_AWCR_AAW		GENMASK_32(27, 16)
+#define LTDC_AWCR_AAH		GENMASK_32(11, 0)
+#define LTDC_TWCR_TOTALW	GENMASK_32(27, 16)
+#define LTDC_TWCR_TOTALH	GENMASK_32(11, 0)
 #define LTDC_LCR_LNBR		GENMASK_32(7, 0)
 #define LTDC_LXWHPCR_WHSTPOS	GENMASK_32(11, 0)
 #define LTDC_LXWHPCR_WHSPPOS	GENMASK_32(31, 16)
@@ -99,13 +103,13 @@ struct ltdc_device {
 #define LTDC_LXDCCR_DCALPHA	GENMASK_32(31, 24)
 
 enum ltdc_pix_fmt {
-	LXPFCR_PF_ARGB8888,
-	LXPFCR_PF_ABGR8888,
-	LXPFCR_PF_RGBA8888,
-	LXPFCR_PF_BGRA8888,
-	LXPFCR_PF_RGB565,
-	LXPFCR_PF_BGR565,
-	LXPFCR_PF_RGB888
+	LXPFCR_PF_ARGB8888,		/* ARGB [32 bits] */
+	LXPFCR_PF_ABGR8888,		/* ABGR [32 bits] */
+	LXPFCR_PF_RGBA8888,		/* RGBA [32 bits] */
+	LXPFCR_PF_BGRA8888,		/* BGRA [32 bits] */
+	LXPFCR_PF_RGB565,		/* RGB  [16 bits] */
+	LXPFCR_PF_BGR565,		/* BGR  [16 bits] */
+	LXPFCR_PF_RGB888,		/* RGB  [24 bits] */
 };
 
 /* Within mask LTDC_LXBFCR_BF1 */
@@ -264,8 +268,9 @@ static TEE_Result stm32_ltdc_activate(void *device,
 	awcr = io_read32(ldev->regs + LTDC_AWCR);
 	bpcr = io_read32(ldev->regs + LTDC_BPCR);
 
-	height_crtc = (awcr & 0xffff) - (bpcr & 0xffff);
-	width_crtc = (awcr >> 16) - (bpcr >> 16);
+	height_crtc = (awcr & LTDC_AWCR_AAH) - (bpcr & LTDC_BPCR_AVBP);
+	width_crtc = ((awcr & LTDC_AWCR_AAW) >> 16) -
+		     ((bpcr & LTDC_BPCR_AHBP) >> 16);
 
 	if (fb->height > height_crtc || fb->width > width_crtc || !fb->base) {
 		ret = TEE_ERROR_GENERIC;
@@ -289,9 +294,34 @@ static TEE_Result stm32_ltdc_activate(void *device,
 	io_clrsetbits32(ldev->regs + LTDC_LXWVPCR,
 			LTDC_LXWVPCR_WVSTPOS | LTDC_LXWVPCR_WVSPPOS, value);
 
+	switch (fb->bpp) {
+	case FB_ARGB_32BPP:
+		value = LXPFCR_PF_ARGB8888;
+		break;
+	case FB_ABGR_32_BPP:
+		value = LXPFCR_PF_ABGR8888;
+		break;
+	case FB_RGBA_32_BPP:
+		value = LXPFCR_PF_RGBA8888;
+		break;
+	case FB_BGRA_32_BPP:
+		value = LXPFCR_PF_BGRA8888;
+		break;
+	case FB_RGB_24_BPP:
+		value = LXPFCR_PF_RGB888;
+		break;
+	case FB_RGB_16_BPP:
+		value = LXPFCR_PF_RGB565;
+		break;
+	case FB_BGR_16_BPP:
+		value = LXPFCR_PF_BGR565;
+		break;
+	default:
+		panic("Invalid Pixel format");
+	}
+
 	/* Specifies the pixel format, hard coded */
-	io_clrsetbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF,
-			LXPFCR_PF_ARGB8888);
+	io_clrsetbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF, value);
 
 	/* Configure the default color values, hard coded */
 	io_clrsetbits32(ldev->regs + LTDC_LXDCCR,
@@ -299,8 +329,9 @@ static TEE_Result stm32_ltdc_activate(void *device,
 			LTDC_LXDCCR_DCRED | LTDC_LXDCCR_DCALPHA,
 			0x00FFFFFF);
 
-	/* Specifies the constant alpha value, hard coded. */
-	io_clrsetbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA, 0xFF);
+	/* Specifies the constant alpha value. */
+	io_clrsetbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA,
+			fb->alpha);
 
 	/* Specifies the blending factors, hard coded. */
 	io_clrsetbits32(ldev->regs + LTDC_LXBFCR, LXBFCR_BF2 | LXBFCR_BF1,
@@ -367,8 +398,9 @@ static TEE_Result stm32_ltdc_get_display_size(void *device,
 	awcr = io_read32(ldev->regs + LTDC_AWCR);
 	bpcr = io_read32(ldev->regs + LTDC_BPCR);
 
-	*height = (awcr & 0xffff) - (bpcr & 0xffff);
-	*width = (awcr >> 16) - (bpcr >> 16);
+	*height = (awcr & LTDC_AWCR_AAH) - (bpcr & LTDC_BPCR_AVBP);
+	*width = ((awcr & LTDC_AWCR_AAW) >> 16) -
+		 ((bpcr & LTDC_BPCR_AHBP) >> 16);
 out:
 	clk_disable(ldev->clock);
 

@@ -191,20 +191,20 @@ static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id,
 		ocall2_params[1] = dyn_shm->out_size;
 
 	if (thread_rpc_ocall2_cmd(ocall2_params)) {
-		DMSG("Error on channel %u"PRIu32, channel_id);
+		DMSG("Error on channel %"PRIu32, channel_id);
 		return PTA_SCMI_OCALL_ERROR;
 	}
 
 	switch (ocall2_params[0]) {
 	case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
-		FMSG("Posting SMT message on channel %u"PRIu32, channel_id);
+		FMSG("Posting SMT message on channel %"PRIu32, channel_id);
 		if (!IS_ENABLED(CFG_SCMI_MSG_SMT) || dyn_shm)
 			return PTA_SCMI_OCALL_ERROR;
 
 		scmi_smt_threaded_entry(channel_id);
 		break;
 	case PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL:
-		FMSG("Posting MSG message on channel %u"PRIu32, channel_id);
+		FMSG("Posting MSG message on channel %"PRIu32, channel_id);
 		if (!dyn_shm)
 			return PTA_SCMI_OCALL_ERROR;
 
@@ -230,13 +230,21 @@ static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id,
 
 		break;
 	case PTA_SCMI_OCALL_CLOSE_THREAD:
-		FMSG("Closing channel %u"PRIu32, channel_id);
+		FMSG("Closing channel %"PRIu32, channel_id);
 		break;
 	case PTA_SCMI_OCALL_ERROR:
-		FMSG("Error on channel %u"PRIu32, channel_id);
+		FMSG("Error on channel %"PRIu32, channel_id);
+		break;
+	case PTA_SCMI_OCALL_ENABLE_NOIRQ:
+		FMSG("Enable NOIRQ on channel %"PRIu32, channel_id);
+		thread_enable_nsec_noirq();
+		break;
+	case PTA_SCMI_OCALL_DISABLE_NOIRQ:
+		FMSG("Disable NOIRQ on channel %"PRIu32, channel_id);
+		thread_disable_nsec_noirq();
 		break;
 	default:
-		DMSG("Invalid Ocall cmd %#x on channel %u"PRIu32,
+		DMSG("Invalid Ocall cmd %#x on channel %"PRIu32,
 		     ocall2_params[1], channel_id);
 		return PTA_SCMI_OCALL_ERROR;
 	}
@@ -271,10 +279,12 @@ static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
 	if (res)
 		return res;
 
-	FMSG("Enter Ocall thread on channel %u"PRIu32, channel_id);
+	FMSG("Enter Ocall thread on channel %"PRIu32, channel_id);
 	while (1) {
 		switch (pta_scmi_ocall(channel_id, NULL)) {
 		case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
+		case PTA_SCMI_OCALL_ENABLE_NOIRQ:
+		case PTA_SCMI_OCALL_DISABLE_NOIRQ:
 			continue;
 		case PTA_SCMI_OCALL_CLOSE_THREAD:
 			thread_rpc_ocall2_unprepare(rpc_arg);
@@ -317,6 +327,8 @@ static TEE_Result cmd_scmi_ocall_msg_thread(uint32_t ptypes,
 	while (1) {
 		switch (pta_scmi_ocall(channel_id, &dyn_shm)) {
 		case PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL:
+		case PTA_SCMI_OCALL_ENABLE_NOIRQ:
+		case PTA_SCMI_OCALL_DISABLE_NOIRQ:
 			continue;
 		case PTA_SCMI_OCALL_CLOSE_THREAD:
 			thread_rpc_ocall2_unprepare(rpc_arg);

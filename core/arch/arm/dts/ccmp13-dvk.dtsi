@@ -381,7 +381,12 @@
 
 &pwr_irq {
 	status = "okay";
-	wakeup-gpios = <&gpiof 8 GPIO_ACTIVE_HIGH>, <0>, <0>, <0>, <0>, <0>;
+	wakeup-gpios = <&gpiof 8 GPIO_ACTIVE_HIGH>, /* WKUP1 - PF8 */
+		       <0>, /* WKUP2 - PI3 */
+		       <0>, /* WKUP3 - PC13 */
+		       <0>, /* WKUP4 - PI1 */
+		       <0>, /* WKUP5 - PI2 */
+		       <0>; /* WKUP6 - PA3 */
 };
 
 &pwr_regulators {

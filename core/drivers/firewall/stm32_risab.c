@@ -111,18 +111,12 @@ void stm32_risab_clear_illegal_access_flags(void)
 	SLIST_FOREACH(risab, &risab_list, link) {
 		vaddr_t base = risab_base(risab);
 
-		if (clk_enable(risab->clock))
-			panic("Can't enable RISAB clock");
-
-		if (!io_read32(base + _RISAB_IASR)) {
-			clk_disable(risab->clock);
+		if (!clk_is_enabled(risab->clock) ||
+		    !io_read32(base + _RISAB_IASR))
 			continue;
-		}
 
 		io_write32(base + _RISAB_IACR, _RISAB_IACR_CAEF |
 			   _RISAB_IACR_IAEF);
-
-		clk_disable(risab->clock);
 	}
 }
 
@@ -134,14 +128,10 @@ void stm32_risab_dump_erroneous_data(void)
 	SLIST_FOREACH(risab, &risab_list, link) {
 		vaddr_t base = risab_base(risab);
 
-		if (clk_enable(risab->clock))
-			panic("Can't enable RISAB clock");
-
 		/* Check if faulty address on this RISAB */
-		if (!io_read32(base + _RISAB_IASR)) {
-			clk_disable(risab->clock);
+		if (!clk_is_enabled(risab->clock) ||
+		    !io_read32(base + _RISAB_IASR))
 			continue;
-		}
 
 		EMSG("\n\nDUMPING DATA FOR %s\n\n", risab->risab_name);
 		EMSG("=====================================================");
@@ -152,8 +142,6 @@ void stm32_risab_dump_erroneous_data(void)
 		     io_read32(base + _RISAB_IADDR));
 
 		EMSG("=====================================================\n");
-
-		clk_disable(risab->clock);
 	};
 }
 #endif /* CFG_TEE_CORE_DEBUG */

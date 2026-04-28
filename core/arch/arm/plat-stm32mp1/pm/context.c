@@ -34,6 +34,8 @@
 
 #define TRAINING_AREA_SIZE		64
 
+#define PM_MAILBOX_LOW_POWER_EP_ERROR	-1
+
 /*
  * STANDBY_CONTEXT_MAGIC  - V1 and V2 are not supported by OP-TEE
  *
@@ -579,7 +581,8 @@ void stm32mp_pm_shutdown_context(unsigned int soc_mode)
 TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode)
 {
 	struct pm_mailbox *mailbox = NULL;
-	void (*stm32_pwr_down_wfi)(bool is_cstop, unsigned int soc_mode) = NULL;
+	int (*stm32_pwr_down_wfi)(bool is_cstop, unsigned int soc_mode) = NULL;
+	int ret = 1;
 
 	clk_enable(pm_clocks.bkpsram);
 
@@ -597,12 +600,20 @@ TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode)
 	dsb();
 	isb();
 
-	(*stm32_pwr_down_wfi)(true, soc_mode);
+	/* Clean again the cache after disabling the cache */
+	dcache_op_all(DCACHE_OP_CLEAN_INV);
+
+	ret = (*stm32_pwr_down_wfi)(true, soc_mode);
 
 	/* Enable Cache & MMU */
 	write_sctlr(read_sctlr() | SCTLR_C | SCTLR_M);
 
 	clk_disable(pm_clocks.bkpsram);
+
+	if (ret == PM_MAILBOX_LOW_POWER_EP_ERROR)
+		return TEE_ERROR_BAD_STATE;
+	else if (ret)
+		return TEE_ERROR_GENERIC;
 
 	return TEE_SUCCESS;
 }

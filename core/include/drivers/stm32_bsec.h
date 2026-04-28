@@ -11,43 +11,48 @@
 #include <tee_api.h>
 #include <types_ext.h>
 
-/* BSEC_DEBUG */
-#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
-#define BSEC_DBGENA			BIT(1)
-#define BSEC_NIDENA			BIT(2)
-#define BSEC_DEVICEEN			BIT(3)
-#define BSEC_HDPEN			BIT(4)
-#define BSEC_SPIDENA			BIT(5)
-#define BSEC_SPNIDENA			BIT(6)
-#define BSEC_DBGSWEN			BIT(7)
-#define BSEC_DBGENM			BIT(8)
-#define BSEC_NIDENM			BIT(9)
-#define BSEC_SPIDENM			BIT(10)
-#define BSEC_SPNIDENM			BIT(11)
-#else /* STM32MP1x */
-#define BSEC_HDPEN			BIT(4)
-#define BSEC_SPIDEN			BIT(5)
-#define BSEC_SPINDEN			BIT(6)
-#define BSEC_DBGSWGEN			BIT(10)
-#define BSEC_DEBUG_ALL			(BSEC_HDPEN | \
-					 BSEC_SPIDEN | \
-					 BSEC_SPINDEN | \
-					 BSEC_DBGSWGEN)
-#endif
-#if defined(CFG_STM32MP21)
-#define BSEC_AUTH_UNLOCK_MSK		GENMASK_32(15, 8)
-#define BSEC_AUTH_UNLOCK(val)		(((val) << 8) & BSEC_AUTH_UNLOCK_MSK)
-#define BSEC_AUTH_HDPL_MSK		GENMASK_32(23, 16)
-#define BSEC_AUTH_HDPL(val)		(((val) << 16) & BSEC_AUTH_HDPL_MSK)
-#define BSEC_AUTH_SEC_MSK		GENMASK_32(31, 24)
-#define BSEC_AUTH_SEC(val)		(((val) << 24) & BSEC_AUTH_SEC_MSK)
-#define BSEC_AUTH_UNLOCKED		0xb4
-#define BSEC_AUTH_LOCKED		0xff
-#define BSEC_AUTH_HDPL0			0xb4
-#define BSEC_AUTH_HDPL1			0x51
-#define BSEC_AUTH_HDPL2			0x8a
-#define BSEC_AUTH_HDPL3			0x6f
-#endif
+/* Debug permission mask */
+/* Cortex A Non-Secure Trace-only */
+#define STM32_BSEC_DEBUG_CORTEX_A_NSTO		BIT(0)
+/* Cortex A Non-Secure Full-Debug */
+#define STM32_BSEC_DEBUG_CORTEX_A_NSFD		BIT(1)
+/* Cortex A Secure Trace-only */
+#define STM32_BSEC_DEBUG_CORTEX_A_STO		BIT(2)
+/* Cortex A Secure Full-Debug */
+#define STM32_BSEC_DEBUG_CORTEX_A_SFD		BIT(3)
+/* Cortex M Non-Secure Trace-only */
+#define STM32_BSEC_DEBUG_CORTEX_M_NSTO		BIT(4)
+/* Cortex M Non-Secure Full-Debug */
+#define STM32_BSEC_DEBUG_CORTEX_M_NSFD		BIT(5)
+/* Cortex M Secure Trace-only */
+#define STM32_BSEC_DEBUG_CORTEX_M_STO		BIT(6)
+/* Cortex M Secure Full-Debug */
+#define STM32_BSEC_DEBUG_CORTEX_M_SFD		BIT(7)
+/* Cortex A Minimal Debug HDP level */
+#define STM32_BSEC_DEBUG_CORTEX_A_HDPL		BIT(8)
+#define STM32_BSEC_DEBUG_CORTEX_A_HDP(lvl) \
+	(STM32_BSEC_DEBUG_CORTEX_A_HDPL << (lvl))
+/* Cortex M Minimal Debug HDP level */
+#define STM32_BSEC_DEBUG_CORTEX_M_HDPL		BIT(12)
+#define STM32_BSEC_DEBUG_CORTEX_M_HDP(lvl) \
+	(STM32_BSEC_DEBUG_CORTEX_M_HDPL << (lvl))
+/* Cortex A Secure Debug Disabled */
+#define STM32_BSEC_DEBUG_CORTEX_A_SDDIS		BIT(16)
+/* Cortex A Non-Sec Debug Disabled */
+#define STM32_BSEC_DEBUG_CORTEX_A_NSDDIS	BIT(17)
+/* Cortex M Secure Debug Disabled */
+#define STM32_BSEC_DEBUG_CORTEX_M_SDDIS		BIT(18)
+/* Cortex M Non-Sec Debug Disabled */
+#define STM32_BSEC_DEBUG_CORTEX_M_NSDDIS	BIT(19)
+/* Wait for attach at boot time */
+#define STM32_BSEC_DEBUG_WAITATTACH		BIT(31)
+
+#define STM32_BSEC_DEBUG_ALL (STM32_BSEC_DEBUG_CORTEX_A_NSFD | \
+			      STM32_BSEC_DEBUG_CORTEX_A_SFD | \
+			      STM32_BSEC_DEBUG_CORTEX_M_NSFD | \
+			      STM32_BSEC_DEBUG_CORTEX_M_SFD | \
+			      STM32_BSEC_DEBUG_CORTEX_A_HDP(0) | \
+			      STM32_BSEC_DEBUG_CORTEX_M_HDP(0))
 
 #define BSEC_BITS_PER_WORD		(8U * sizeof(uint32_t))
 #define BSEC_BYTES_PER_WORD		sizeof(uint32_t)
@@ -156,31 +161,6 @@ TEE_Result stm32_bsec_write_debug_conf(uint32_t value);
 /* Return debug configuration read from BSEC */
 uint32_t stm32_bsec_read_debug_conf(void);
 
-#ifdef CFG_STM32MP21
-/*
- * Enable/disable debug with temporal isolation level for Cortex-A and Cortex-M
- * @ca_value: Value to write in BSEC debug control register for Cortex-A
- * @cm_value: Value to write in BSEC debug control register for Cortex-M
- * Return a TEE_Result compliant return value
- */
-TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value);
-
-/*
- * Parse permissions mask and prepare values to feed stm32_bsec_write_debug_conf
- * and stm32_bsec_write_debug_ctrl functions to enable/disable debug
- * @perm_mask: Permissions mask to enable/disable debug features
- * @dbg_en_val: (out) Value to write in BSEC debug enable register
- * @dbg_a_ctrl_val: (out) Value to write in BSEC debug control register for
- *			  Cortex-A
- * @dbg_m_ctrl_val: (out) Value to write in BSEC debug control register for
- *			  Cortex-M
- */
-void stm32_bsec_parse_permissions(uint32_t perm_mask,
-				  uint32_t *dbg_en_val,
-				  uint32_t *dbg_a_ctrl_val,
-				  uint32_t *dbg_m_ctrl_val);
-#endif
-
 /*
  * Write shadow-read lock
  * @otp_id: OTP number
@@ -252,9 +232,14 @@ bool stm32_bsec_nsec_can_access_otp(uint32_t otp_id);
 bool stm32_bsec_self_hosted_debug_is_enabled(void);
 
 /*
- * Program BSEC for dummy ADAC (open access to every AP).
+ * Return true if HDP is enabled.
  */
-void stm32_bsec_mp21_dummy_adac(void);
+bool stm32_bsec_hdp_is_enabled(void);
+
+/*
+ * Return true if coresight peripheral can be used.
+ */
+bool stm32_bsec_coresight_is_enabled(void);
 
 /*
  * Program BSEC to open DBGMCU_APB_AP (AP0)

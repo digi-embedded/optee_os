@@ -211,7 +211,7 @@ void stm32_enter_cstop(uint32_t mode)
 	vaddr_t pwr_base = stm32_pwr_base();
 	vaddr_t rcc_base = stm32_rcc_base();
 
-	IMSG("Enter cstop mode %u", mode);
+	DMSG("Enter cstop mode %u", mode);
 
 #ifdef CFG_STM32MP15
 	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2)

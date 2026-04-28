@@ -326,7 +326,7 @@ static uint32_t stm32_risaf_get_subregion_config(uint32_t cfg)
 			 _RISAF_SUBREG_CFGR_SEC_SHIFT) |
 	       SHIFT_U32((cfg & DT_RISAF_SUB_PRIV_MASK) >>
 			 (DT_RISAF_SUB_PRIV_SHIFT),
-			 _RISAF_SUBREG_CFGR_SEC_SHIFT) |
+			 _RISAF_SUBREG_CFGR_PRIV_SHIFT) |
 	       SHIFT_U32((cfg & DT_RISAF_SUB_RDEN_MASK) >>
 			 (DT_RISAF_SUB_RDEN_SHIFT),
 			 _RISAF_SUBREG_CFGR_RDEN_SHIFT) |
@@ -352,14 +352,12 @@ void stm32_risaf_clear_illegal_access_flags(void)
 	SLIST_FOREACH(risaf, &risaf_list, link) {
 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
 
-		if (clk_enable(risaf->pdata.clock))
-			panic("Can't enable RISAF clock");
+		if (!clk_is_enabled(risaf->pdata.clock))
+			continue;
 
 		if (io_read32(base + _RISAF_IASR))
 			io_write32(base + _RISAF_IACR, _RISAF_IACR_CAEF |
 				   _RISAF_IACR_IAEF0 | _RISAF_IACR_IAEF1);
-
-		clk_disable(risaf->pdata.clock);
 	}
 }
 
@@ -373,14 +371,10 @@ void stm32_risaf_print_erroneous_data(void)
 	SLIST_FOREACH(risaf, &risaf_list, link) {
 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
 
-		if (clk_enable(risaf->pdata.clock))
-			panic("Can't enable RISAF clock");
-
 		/* Check if faulty address on this RISAF */
-		if (!io_read32(base + _RISAF_IASR)) {
-			clk_disable(risaf->pdata.clock);
+		if (!clk_is_enabled(risaf->pdata.clock) ||
+		    !io_read32(base + _RISAF_IASR))
 			continue;
-		}
 
 		IMSG("\n\nDUMPING DATA FOR %s\n\n", risaf->pdata.risaf_name);
 		IMSG("=====================================================");
@@ -414,8 +408,6 @@ void stm32_risaf_print_erroneous_data(void)
 		}
 
 		IMSG("=====================================================\n");
-
-		clk_disable(risaf->pdata.clock);
 	};
 }
 
@@ -514,6 +506,9 @@ risaf_configure_region(struct stm32_risaf_instance *risaf,
 	uint32_t cid_cfg = stm32_risaf_get_region_cid_config(region->cfg);
 	uint32_t mask = risaf->ddata->mask_regions;
 
+	if (!is_tdcid)
+		return TEE_SUCCESS;
+
 	DMSG("Reconfiguring %s region ID: %"PRIu32, risaf->pdata.risaf_name,
 	     id);
 
@@ -579,6 +574,8 @@ risaf_configure_subregion(struct stm32_risaf_instance *risaf,
 	uint32_t cfg = stm32_risaf_get_subregion_config(subregion->cfg);
 	uint32_t nest_cfg =
 		stm32_risaf_get_subregion_nest_config(subregion->cfg);
+	uint32_t nestr;
+	bool non_tdcid_update = false;
 
 	assert(subreg_id < risaf->ddata->max_subregions);
 
@@ -592,20 +589,35 @@ risaf_configure_subregion(struct stm32_risaf_instance *risaf,
 		return TEE_ERROR_ACCESS_DENIED;
 	}
 
+	nestr = io_read32(base + _RISAF_SUBREG_NESTR(reg_id, subreg_id));
+	non_tdcid_update = !is_tdcid &&
+			   (nestr & _RISAF_SUBREG_NESTR_DCEN) &&
+			   (((nestr & _RISAF_SUBREG_NESTR_DCCID) >>
+			     _RISAF_SUBREG_NESTR_DCCID_SHIFT) == RIF_CID1);
+
+	if (!is_tdcid && !non_tdcid_update)
+		return TEE_SUCCESS;
+
 	io_clrbits32(base + _RISAF_SUBREG_CFGR(reg_id, subreg_id),
 		     _RISAF_SUBREG_CFGR_SREN);
 
-	io_clrsetbits32(base + _RISAF_SUBREG_STARTR(reg_id, subreg_id), mask,
-			(start_addr - risaf->pdata.mem_base) & mask);
-	io_clrsetbits32(base + _RISAF_SUBREG_ENDR(reg_id, subreg_id), mask,
-			(end_addr - risaf->pdata.mem_base) & mask);
-	io_clrsetbits32(base + _RISAF_SUBREG_NESTR(reg_id, subreg_id),
-			_RISAF_SUBREG_NESTR_ALL_MASK,
-			nest_cfg & _RISAF_SUBREG_NESTR_ALL_MASK);
+	if (is_tdcid) {
+		io_clrsetbits32(base + _RISAF_SUBREG_STARTR(reg_id, subreg_id),
+				mask,
+				(start_addr - risaf->pdata.mem_base) & mask);
+		io_clrsetbits32(base + _RISAF_SUBREG_ENDR(reg_id, subreg_id),
+				mask,
+				(end_addr - risaf->pdata.mem_base) & mask);
+	}
 
 	io_clrsetbits32(base + _RISAF_SUBREG_CFGR(reg_id, subreg_id),
 			_RISAF_SUBREG_CFGR_ALL_MASK,
 			cfg & _RISAF_SUBREG_CFGR_ALL_MASK);
+
+	if (is_tdcid)
+		io_clrsetbits32(base + _RISAF_SUBREG_NESTR(reg_id, subreg_id),
+				_RISAF_SUBREG_NESTR_ALL_MASK,
+				nest_cfg & _RISAF_SUBREG_NESTR_ALL_MASK);
 
 	DMSG("RISAF %#"PRIxPA": region %02"PRIu32" - subregion %02"PRIu32
 	     "- start %#"PRIxPA" - end %#"PRIxPA" - cfg %#08"PRIx32
@@ -1119,9 +1131,6 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
 	res = stm32_rifsc_check_tdcid(&is_tdcid);
 	if (res)
 		return res;
-
-	if (!is_tdcid)
-		return TEE_SUCCESS;
 
 	risaf = calloc(1, sizeof(*risaf));
 	if (!risaf)

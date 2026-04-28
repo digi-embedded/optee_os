@@ -20,7 +20,7 @@ target_include_directories(${SCP_FIRMWARE_TARGET}
 		${SCP_TFM_PLAT_DIR}/../devicetree/include
 		${SCP_TFM_PLAT_DIR}/native_driver
 		${CMAKE_BINARY_DIR}/generated/devicetree/platform_s
-		${STM_FAMILLY_DIR}/secure_fw/partitions/scp
+		${STM_FAMILY_DIR}/secure_fw/partitions/scp
 )
 
 target_sources(${SCP_FIRMWARE_TARGET}
