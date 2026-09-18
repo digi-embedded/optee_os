@@ -3525,6 +3525,12 @@ static const struct clk_ops ck_timer_ops = {
 	.get_rate	= ck_timer_get_rate_ops,
 };
 
+#ifdef CFG_STM32_CM33TDCID
+	#define CLK_IS_CRITICAL_TDCID   0
+#else
+	#define CLK_IS_CRITICAL_TDCID   CLK_IS_CRITICAL
+#endif
+
 #define PLL_PARENTS	{ &ck_hsi, &ck_hse, &ck_msi }
 
 #define STM32_OSC(_name, _flags, _gate_id)\
